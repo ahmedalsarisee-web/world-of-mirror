@@ -1,0 +1,165 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && userDoc().role == 'admin';
+    }
+
+    function isEmployee() {
+      return isSignedIn() && userDoc().role == 'employee';
+    }
+
+    function isPrimaryAdmin() {
+      return isSignedIn() && userDoc().isPrimaryAdmin == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function targetUserDoc(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data;
+    }
+
+    function canReadUserDoc(userId) {
+      return isSignedIn() && (
+        isAdmin()
+        || isOwner(userId)
+        || (isEmployee() && targetUserDoc(userId).role == 'admin')
+      );
+    }
+
+    function canDeleteUserDoc(userId) {
+      return isAdmin()
+        && request.auth.uid != userId
+        && targetUserDoc(userId).isPrimaryAdmin != true
+        && (
+          targetUserDoc(userId).role != 'admin'
+          || isPrimaryAdmin()
+        );
+    }
+
+    function delegatedLedgerKey(ownerId, ledgerId) {
+      return ownerId + ':' + ledgerId;
+    }
+
+    function hasDelegatedLedgerAccess(ownerId, ledgerId) {
+      return ledgerId != null
+        && userDoc().get('delegatedFinanceLedgerAccess', []).hasAny([delegatedLedgerKey(ownerId, ledgerId)]);
+    }
+
+    function canAccessDelegatedLedgerTransaction(ownerId, ledgerId) {
+      return isEmployee()
+        && ledgerId != null
+        && targetUserDoc(ownerId).role == 'admin'
+        && hasDelegatedLedgerAccess(ownerId, ledgerId);
+    }
+
+    match /users/{userId} {
+      allow read: if canReadUserDoc(userId);
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (
+        isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+      ) || (
+        isOwner(userId)
+        && isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['expoPushTokens'])
+        && request.resource.data.expoPushTokens is list
+      ) || (
+        isOwner(userId)
+        && isEmployee()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['attendanceGpsHeartbeatAt'])
+        && (
+          request.resource.data.attendanceGpsHeartbeatAt == null
+          || request.resource.data.attendanceGpsHeartbeatAt is string
+        )
+      ) || (
+        isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastLocation'])
+        && request.resource.data.lastLocation is map
+        && request.resource.data.lastLocation.latitude is number
+        && request.resource.data.lastLocation.longitude is number
+        && request.resource.data.lastLocation.updatedAt is string
+        && request.resource.data.lastLocation.latitude >= -90
+        && request.resource.data.lastLocation.latitude <= 90
+        && request.resource.data.lastLocation.longitude >= -180
+        && request.resource.data.lastLocation.longitude <= 180
+      );
+      allow delete: if canDeleteUserDoc(userId);
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isSignedIn() && (
+        isAdmin()
+        || resource.data.userId == request.auth.uid
+        || canAccessDelegatedLedgerTransaction(resource.data.userId, resource.data.ledgerId)
+      );
+      allow create: if isSignedIn() && (
+        isAdmin()
+        || request.resource.data.userId == request.auth.uid
+        || canAccessDelegatedLedgerTransaction(request.resource.data.userId, request.resource.data.ledgerId)
+      );
+      allow update, delete: if isSignedIn() && (
+        isAdmin()
+        || canAccessDelegatedLedgerTransaction(resource.data.userId, resource.data.ledgerId)
+      );
+    }
+
+    match /attendance/{recordId} {
+      allow read: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && (isAdmin() || request.resource.data.userId == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    match /mirrorConfirmedOrders/{orderId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow delete: if isAdmin();
+      allow update: if isAdmin();
+    }
+
+    function isValidAttendanceWorkplaceData(data) {
+      return data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 120
+        && data.latitude is number
+        && data.longitude is number
+        && data.radiusMeters is number
+        && data.latitude >= -90
+        && data.latitude <= 90
+        && data.longitude >= -180
+        && data.longitude <= 180
+        && data.radiusMeters >= 30
+        && data.radiusMeters <= 500
+        && (
+          !('updatedAt' in data)
+          || data.updatedAt == null
+          || data.updatedAt is string
+        )
+        && (
+          !('updatedByUserId' in data)
+          || data.updatedByUserId == null
+          || data.updatedByUserId is string
+        );
+    }
+
+    match /appSettings/{docId} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdmin()
+        && docId == 'attendanceWorkplace'
+        && isValidAttendanceWorkplaceData(request.resource.data);
+      allow delete: if false;
+    }
+  }
+}

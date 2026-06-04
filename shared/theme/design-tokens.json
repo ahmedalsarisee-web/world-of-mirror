@@ -1,0 +1,163 @@
+{
+  "light": {
+    "colors": {
+      "primary": "#6C4DFF",
+      "primaryDark": "#5738F5",
+      "primaryLight": "#8B73FF",
+      "secondary": "#7C3AED",
+      "success": "#16A34A",
+      "successLight": "#DCFCE7",
+      "danger": "#DC2626",
+      "dangerLight": "#FEE2E2",
+      "warning": "#F59E0B",
+      "background": "#F8FAFC",
+      "surface": "#FFFFFF",
+      "surfaceSecondary": "#F1F5F9",
+      "card": "#FFFFFF",
+      "cardBorder": "#E2E8F0",
+      "text": "#0F172A",
+      "textSecondary": "#475569",
+      "textMuted": "#94A3B8",
+      "icon": "#64748B",
+      "divider": "#E2E8F0",
+      "inputBackground": "#FFFFFF",
+      "inputBorder": "#CBD5E1",
+      "placeholder": "#94A3B8",
+      "balancePositive": "#16A34A",
+      "balanceNegative": "#DC2626",
+      "orderPreparing": "#6C4DFF",
+      "orderDelivered": "#16A34A",
+      "overlay": "rgba(0,0,0,0.35)"
+    },
+    "gradients": {
+      "primary": ["#7C3AED", "#6C4DFF"],
+      "dashboard": ["#7C3AED", "#8B5CF6"]
+    },
+    "shadow": {
+      "card": {
+        "shadowColor": "#000",
+        "shadowOpacity": 0.06,
+        "shadowRadius": 10,
+        "elevation": 3
+      }
+    }
+  },
+  "dark": {
+    "colors": {
+      "primary": "#8B73FF",
+      "primaryDark": "#6C4DFF",
+      "primaryLight": "#A78BFA",
+      "secondary": "#A855F7",
+      "success": "#22C55E",
+      "successLight": "#16321F",
+      "danger": "#EF4444",
+      "dangerLight": "#3D1515",
+      "warning": "#F59E0B",
+      "background": "#050816",
+      "surface": "#0B1220",
+      "surfaceSecondary": "#111827",
+      "card": "#121826",
+      "cardBorder": "#1E293B",
+      "text": "#F8FAFC",
+      "textSecondary": "#CBD5E1",
+      "textMuted": "#64748B",
+      "icon": "#94A3B8",
+      "divider": "#1E293B",
+      "inputBackground": "#0F172A",
+      "inputBorder": "#334155",
+      "placeholder": "#64748B",
+      "balancePositive": "#22C55E",
+      "balanceNegative": "#EF4444",
+      "orderPreparing": "#8B73FF",
+      "orderDelivered": "#22C55E",
+      "overlay": "rgba(0,0,0,0.6)"
+    },
+    "gradients": {
+      "primary": ["#6C4DFF", "#8B5CF6"],
+      "dashboard": ["#312E81", "#6D28D9"]
+    },
+    "shadow": {
+      "card": {
+        "shadowColor": "#000",
+        "shadowOpacity": 0.25,
+        "shadowRadius": 14,
+        "elevation": 6
+      }
+    }
+  },
+  "spacing": {
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 20,
+    "xxl": 24
+  },
+  "radius": {
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 20,
+    "full": 999
+  },
+  "typography": {
+    "fontFamily": {
+      "en": "Akt",
+      "ar": "Cairo"
+    },
+    "size": {
+      "xs": 12,
+      "sm": 14,
+      "md": 16,
+      "lg": 18,
+      "xl": 22,
+      "xxl": 28
+    },
+    "weight": {
+      "regular": "400",
+      "medium": "500",
+      "semibold": "600",
+      "bold": "700"
+    }
+  },
+  "components": {
+    "button": {
+      "height": 52,
+      "radius": 14,
+      "primary": {
+        "background": "primary",
+        "text": "#FFFFFF"
+      },
+      "success": {
+        "background": "success",
+        "text": "#FFFFFF"
+      },
+      "danger": {
+        "background": "danger",
+        "text": "#FFFFFF"
+      }
+    },
+    "input": {
+      "height": 52,
+      "radius": 14
+    },
+    "card": {
+      "radius": 18,
+      "padding": 16
+    },
+    "bottomTab": {
+      "height": 72,
+      "radius": 24
+    },
+    "header": {
+      "height": 64
+    },
+    "productCard": {
+      "imageRadius": 14
+    },
+    "transactionCard": {
+      "positiveBorder": "#16A34A",
+      "negativeBorder": "#DC2626"
+    }
+  }
+}

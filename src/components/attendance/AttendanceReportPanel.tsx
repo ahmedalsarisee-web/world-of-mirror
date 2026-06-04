@@ -1,0 +1,533 @@
+import React, {useMemo, type ComponentProps} from 'react';
+import {Platform, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
+import {MaterialCommunityIcons} from '@expo/vector-icons';
+import {useTranslation} from 'react-i18next';
+import AppButton from '@app/components/common/AppButton';
+import EmptyState from '@app/components/common/EmptyState';
+import ListLoadingState from '@app/components/common/ListLoadingState';
+import {useDirection} from '@app/hooks/useDirection';
+import {useTheme} from '@app/context/ThemeContext';
+import type {AppUser, AttendanceEventType, AttendanceRecord} from '@app/types/models';
+import dayjs from 'dayjs';
+import {
+  buildAttendanceDays,
+  computeAttendanceStats,
+  dayHasWorkRecords,
+  formatAttendanceDuration,
+  getNextAttendanceAction,
+  getTodayAttendanceStatus,
+  hasOpenAttendanceToday,
+  type AttendanceDaySummary,
+} from '@app/utils/attendanceReport';
+import LiveAttendanceDurationText from '@app/components/attendance/LiveAttendanceDurationText';
+import {filterRecordsForCurrentPeriod, filterStaleResetRecords, resolveResetPeriodAnchor} from '@app/utils/attendanceSchedule';
+import {searchAttendanceRecords} from '@app/utils/attendanceSearch';
+import {getAttendanceWorkplace} from '@app/utils/attendanceWorkplace';
+import {formatDate, formatTime} from '@app/utils/format';
+import {getListCardStyle} from '@shared/theme/themeHelpers';
+
+interface Props {
+  records: AttendanceRecord[];
+  periodStartIso?: string | null;
+  resetAnchorUser?: Pick<AppUser, 'createdAt' | 'attendanceResetScheduleUpdatedAt'> | null;
+  loading?: boolean;
+  searchQuery?: string;
+  onSearchChange?: (value: string) => void;
+  showActions?: boolean;
+  onAction?: (type: 'check_in' | 'check_out') => void;
+  actionLoading?: boolean;
+  requireLocationCheck?: boolean;
+  requireGpsLinked?: boolean;
+  canManageRecords?: boolean;
+  onPressDay?: (day: AttendanceDaySummary) => void;
+}
+
+type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
+
+interface StatMetricProps {
+  icon: IconName;
+  iconColor: string;
+  iconBackground: string;
+  label: string;
+  value: string;
+}
+
+const StatMetric: React.FC<StatMetricProps> = ({icon, iconColor, iconBackground, label, value}) => {
+  const {theme} = useTheme();
+  const {textStyle, centeredTextStyle} = useDirection();
+
+  return (
+    <View style={statStyles.metric}>
+      <View style={[statStyles.iconWrap, {backgroundColor: iconBackground}]}>
+        <MaterialCommunityIcons name={icon} size={16} color={iconColor} />
+      </View>
+      <Text
+        style={[statStyles.label, textStyle, centeredTextStyle, {color: theme.typography.secondary}]}
+        numberOfLines={2}
+      >
+        {label}
+      </Text>
+      <Text style={[statStyles.value, textStyle, centeredTextStyle, {color: theme.typography.primary}]}>
+        {value}
+      </Text>
+    </View>
+  );
+};
+
+const statStyles = StyleSheet.create({
+  metric: {flex: 1, alignItems: 'center', paddingVertical: 8},
+  iconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  label: {
+    fontSize: 11,
+    fontWeight: '600',
+    marginBottom: 2,
+    textAlign: 'center',
+  },
+  value: {
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+});
+
+const AttendanceReportPanel: React.FC<Props> = ({
+  records,
+  periodStartIso = null,
+  resetAnchorUser = null,
+  loading = false,
+  searchQuery = '',
+  onSearchChange,
+  showActions = false,
+  onAction,
+  actionLoading = false,
+  requireLocationCheck = false,
+  requireGpsLinked = false,
+  canManageRecords = false,
+  onPressDay,
+}) => {
+  const {t} = useTranslation();
+  const {theme} = useTheme();
+  const {textStyle, inlineTextStyle, centeredTextStyle, ltrTextStyle, appFont, row, textAlign, writingDirection, layoutStyle} =
+    useDirection();
+  const listCard = useMemo(() => getListCardStyle(theme), [theme]);
+  const todayKey = useMemo(() => dayjs().format('YYYY-MM-DD'), []);
+  const isLiveTodayOpen = hasOpenAttendanceToday(records);
+
+  const displayRecords = useMemo(() => {
+    const anchor = resolveResetPeriodAnchor(resetAnchorUser, records);
+    return filterStaleResetRecords(records, anchor);
+  }, [records, resetAnchorUser]);
+
+  const periodRecords = useMemo(
+    () => filterRecordsForCurrentPeriod(displayRecords, periodStartIso),
+    [displayRecords, periodStartIso],
+  );
+
+  const allDays = useMemo(
+    () => buildAttendanceDays(displayRecords, dayjs(), {includeLiveDuration: false}),
+    [displayRecords],
+  );
+  const statsDays = useMemo(
+    () => buildAttendanceDays(periodRecords, dayjs(), {includeLiveDuration: false}),
+    [periodRecords],
+  );
+  const stats = useMemo(() => computeAttendanceStats(statsDays), [statsDays]);
+  const filteredRecords = useMemo(
+    () => searchAttendanceRecords(displayRecords, searchQuery),
+    [displayRecords, searchQuery],
+  );
+  const days = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return allDays;
+    }
+
+    const visibleIds = new Set(filteredRecords.map((record) => record.id));
+    return allDays
+      .map((day) => ({
+        ...day,
+        records: day.records.filter((record) => visibleIds.has(record.id)),
+      }))
+      .filter((day) => day.records.length > 0);
+  }, [allDays, filteredRecords, searchQuery]);
+  const nextAction = useMemo(() => getNextAttendanceAction(records), [records]);
+  const todayStatus = useMemo(() => getTodayAttendanceStatus(records, t), [records, t]);
+  const hasSearchQuery = searchQuery.trim().length > 0;
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        statusCard: {
+          padding: theme.spacing.md,
+          marginBottom: theme.spacing.sm,
+          alignItems: 'center',
+        },
+        statusIconWrap: {
+          width: 36,
+          height: 36,
+          borderRadius: 18,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: theme.colors.surfaceSecondary,
+          marginBottom: theme.spacing.xs,
+        },
+        statusLabel: {
+          fontSize: theme.typographyScale.size.xs,
+          marginBottom: 2,
+        },
+        statusValue: {
+          fontSize: theme.typographyScale.size.sm,
+          fontWeight: '700',
+          marginBottom: theme.spacing.sm,
+        },
+        actionBtn: {width: '100%'},
+        locationHint: {
+          marginTop: theme.spacing.sm,
+          fontSize: theme.typographyScale.size.xs,
+          lineHeight: 18,
+          textAlign: 'center',
+        },
+        statsCard: {
+          overflow: 'hidden',
+          marginBottom: theme.spacing.sm,
+        },
+        statsRow: {flexDirection: row, alignItems: 'stretch'},
+        statsDivider: {
+          width: 1,
+          backgroundColor: theme.colors.divider,
+          marginVertical: theme.spacing.sm,
+        },
+        statsPeriodHint: {
+          fontSize: theme.typographyScale.size.xs,
+          textAlign: 'center',
+          paddingHorizontal: theme.spacing.md,
+          paddingBottom: theme.spacing.sm,
+        },
+        sectionTitle: {
+          fontSize: theme.typographyScale.size.sm,
+          fontWeight: '600',
+          marginBottom: theme.spacing.xs,
+        },
+        searchWrap: {
+          flexDirection: row,
+          alignItems: 'center',
+          marginBottom: theme.spacing.sm,
+          paddingHorizontal: theme.spacing.md,
+          gap: theme.spacing.sm,
+          borderWidth: 1,
+          borderColor: theme.colors.inputBorder,
+          backgroundColor: theme.colors.inputBackground,
+          borderRadius: theme.components.input.radius,
+          minHeight: 40,
+        },
+        searchInput: {
+          flex: 1,
+          fontSize: theme.typographyScale.size.xs,
+          paddingVertical: Platform.OS === 'android' ? 6 : 8,
+          ...(Platform.OS === 'android' ? {includeFontPadding: false} : null),
+        },
+        dayCard: {
+          padding: theme.spacing.md,
+          marginBottom: theme.spacing.sm,
+        },
+        dayHeader: {
+          flexDirection: row,
+          alignItems: 'center',
+          marginBottom: theme.spacing.xs,
+          gap: theme.spacing.sm,
+        },
+        dayTitle: {flex: 1, minWidth: 0, fontSize: theme.typographyScale.size.sm, fontWeight: '700'},
+        durationBadge: {
+          flexShrink: 0,
+          fontSize: theme.typographyScale.size.xs,
+          fontWeight: '700',
+          color: theme.colors.primary,
+        },
+        eventRow: {
+          flexDirection: row,
+          alignItems: 'center',
+          paddingVertical: 4,
+          gap: theme.spacing.sm,
+        },
+        eventLabel: {flex: 1, minWidth: 0, fontSize: theme.typographyScale.size.xs, fontWeight: '600'},
+        eventTime: {flexShrink: 0, fontSize: theme.typographyScale.size.xs},
+        sessionDivider: {
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: theme.colors.divider,
+          marginVertical: theme.spacing.xs,
+        },
+        incomplete: {
+          marginTop: theme.spacing.xs,
+          fontSize: theme.typographyScale.size.xs,
+        },
+        manageHint: {
+          fontSize: theme.typographyScale.size.xs,
+          marginBottom: theme.spacing.sm,
+          lineHeight: 18,
+        },
+        dayPressable: {
+          borderRadius: theme.components.input.radius,
+        },
+        editDayBadge: {
+          flexDirection: row,
+          alignItems: 'center',
+          gap: 4,
+          marginTop: theme.spacing.xs,
+        },
+        editDayText: {
+          fontSize: theme.typographyScale.size.xs,
+          fontWeight: '600',
+        },
+      }),
+    [row, theme],
+  );
+
+  if (loading) {
+    return <ListLoadingState />;
+  }
+
+  return (
+    <View>
+      {showActions ? (
+        <View style={[styles.statusCard, listCard]}>
+          <View style={styles.statusIconWrap}>
+            <MaterialCommunityIcons name="calendar-clock" size={20} color={theme.colors.primary} />
+          </View>
+          <Text style={[styles.statusLabel, textStyle, {color: theme.typography.secondary}]}>
+            {t('attendanceTodayStatus')}
+          </Text>
+          <Text style={[styles.statusValue, textStyle, {color: theme.typography.primary}]}>{todayStatus}</Text>
+          <AppButton
+            label={nextAction === 'check_in' ? t('checkIn') : t('checkOut')}
+            variant={nextAction === 'check_in' ? 'success' : 'danger'}
+            onPress={() => onAction?.(nextAction)}
+            loading={actionLoading}
+            style={styles.actionBtn}
+          />
+          {nextAction === 'check_in' && requireLocationCheck ? (
+            <Text style={[styles.locationHint, centeredTextStyle, textStyle, {color: theme.typography.secondary}]}>
+              {t('attendanceLocationCheckInHint', {name: getAttendanceWorkplace().name})}
+            </Text>
+          ) : null}
+          {requireGpsLinked ? (
+            <Text style={[styles.locationHint, centeredTextStyle, textStyle, {color: theme.colors.primary}]}>
+              {t('attendanceGpsLinkedActiveHint')}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      <View style={[styles.statsCard, listCard]}>
+        <View style={styles.statsRow}>
+          <StatMetric
+            icon="calendar-check"
+            iconColor={theme.colors.success}
+            iconBackground={theme.colors.successLight}
+            label={t('attendanceDays')}
+            value={String(stats.daysWithCheckIn)}
+          />
+          <View style={styles.statsDivider} />
+          <StatMetric
+            icon="calendar-sync"
+            iconColor={theme.colors.primary}
+            iconBackground={theme.colors.surfaceSecondary}
+            label={t('attendanceCompletedDays')}
+            value={String(stats.completedSessions)}
+          />
+          <View style={styles.statsDivider} />
+          <View style={statStyles.metric}>
+            <View style={[statStyles.iconWrap, {backgroundColor: theme.colors.surfaceSecondary}]}>
+              <MaterialCommunityIcons name="clock-outline" size={16} color={theme.colors.warning} />
+            </View>
+            <Text
+              style={[statStyles.label, textStyle, centeredTextStyle, {color: theme.typography.secondary}]}
+              numberOfLines={2}
+            >
+              {t('attendanceTotalHours')}
+            </Text>
+            {isLiveTodayOpen ? (
+              <LiveAttendanceDurationText
+                baseSeconds={stats.totalSeconds}
+                records={periodRecords}
+                style={[statStyles.value, textStyle, centeredTextStyle, {color: theme.typography.primary}]}
+              />
+            ) : (
+              <Text style={[statStyles.value, textStyle, centeredTextStyle, {color: theme.typography.primary}]}>
+                {formatAttendanceDuration(stats.totalSeconds)}
+              </Text>
+            )}
+          </View>
+        </View>
+        {periodStartIso ? (
+          <Text style={[styles.statsPeriodHint, textStyle, {color: theme.typography.secondary}]}>
+            {t('attendanceStatsCurrentPeriod')}
+          </Text>
+        ) : null}
+      </View>
+
+      <Text style={[styles.sectionTitle, textStyle, {color: theme.typography.primary}]}>
+        {t('attendanceReport')}
+      </Text>
+
+      {canManageRecords ? (
+        <Text style={[styles.manageHint, textStyle, {color: theme.typography.secondary}]}>
+          {t('attendanceManageHint')}
+        </Text>
+      ) : null}
+
+      {onSearchChange ? (
+        <View style={[styles.searchWrap, layoutStyle]}>
+          <MaterialCommunityIcons name="magnify" size={18} color={theme.colors.icon} />
+          <TextInput
+            value={searchQuery}
+            onChangeText={onSearchChange}
+            placeholder={t('searchAttendance')}
+            placeholderTextColor={theme.colors.placeholder}
+            style={[styles.searchInput, {color: theme.typography.primary, textAlign, writingDirection}]}
+            returnKeyType="search"
+            clearButtonMode="while-editing"
+          />
+        </View>
+      ) : null}
+
+      {days.length === 0 ? (
+        <EmptyState
+          icon="calendar-clock"
+          message={hasSearchQuery ? t('noAttendanceMatch') : t('employeeAttendanceEmpty')}
+        />
+      ) : (
+        days.map((day) => {
+          const canPressDay = canManageRecords && onPressDay && dayHasWorkRecords(day);
+          const cardContent = (
+            <>
+              <View style={styles.dayHeader}>
+                <Text style={[styles.dayTitle, inlineTextStyle, {color: theme.typography.primary}]}>
+                  {formatDate(`${day.dateKey}T12:00:00`)}
+                </Text>
+                {day.totalDurationSeconds > 0 || (day.isOpen && day.dateKey === todayKey) ? (
+                  day.isOpen && day.dateKey === todayKey ? (
+                    <LiveAttendanceDurationText
+                      baseSeconds={day.totalDurationSeconds}
+                      records={day.records}
+                      style={[styles.durationBadge, inlineTextStyle]}
+                    />
+                  ) : (
+                    <Text style={[styles.durationBadge, inlineTextStyle]}>
+                      {formatAttendanceDuration(day.totalDurationSeconds)}
+                    </Text>
+                  )
+                ) : null}
+              </View>
+
+              {day.records.map((record, index) => (
+                <View key={record.id}>
+                  {index > 0 ? <View style={styles.sessionDivider} /> : null}
+                  {record.type === 'hours_reset' ? (
+                    <>
+                      <View style={styles.eventRow}>
+                        <Text
+                          style={[
+                            styles.eventLabel,
+                            inlineTextStyle,
+                            {color: theme.colors.warning, flex: 1},
+                          ]}
+                        >
+                          {t('attendanceHoursReset')}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.eventTime,
+                            ltrTextStyle,
+                            appFont('medium'),
+                            {color: theme.typography.secondary},
+                          ]}
+                        >
+                          {formatTime(record.createdAt)}
+                        </Text>
+                      </View>
+                      {record.note ? (
+                        <Text
+                          style={[
+                            styles.incomplete,
+                            inlineTextStyle,
+                            {color: theme.typography.secondary, marginTop: 2},
+                          ]}
+                        >
+                          {record.note}
+                        </Text>
+                      ) : null}
+                    </>
+                  ) : (
+                    <View style={styles.eventRow}>
+                      <Text
+                        style={[
+                          styles.eventLabel,
+                          inlineTextStyle,
+                          {color: record.type === 'check_in' ? theme.colors.success : theme.colors.danger},
+                        ]}
+                      >
+                        {record.type === 'check_in' ? t('checkIn') : t('checkOut')}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.eventTime,
+                          ltrTextStyle,
+                          appFont('medium'),
+                          {color: theme.typography.secondary},
+                        ]}
+                      >
+                        {formatTime(record.createdAt)}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              ))}
+
+              {day.isOpen ? (
+                <Text style={[styles.incomplete, inlineTextStyle, {color: theme.colors.warning}]}>
+                  {t('attendanceMissingCheckOut')}
+                </Text>
+              ) : null}
+
+              {canPressDay ? (
+                <View style={styles.editDayBadge}>
+                  <MaterialCommunityIcons name="pencil-outline" size={14} color={theme.colors.primary} />
+                  <Text style={[styles.editDayText, inlineTextStyle, {color: theme.colors.primary}]}>
+                    {t('editAttendanceDay')}
+                  </Text>
+                </View>
+              ) : null}
+            </>
+          );
+
+          return canPressDay ? (
+            <Pressable
+              key={day.dateKey}
+              onPress={() => onPressDay(day)}
+              style={({pressed}) => [
+                styles.dayCard,
+                styles.dayPressable,
+                listCard,
+                pressed ? {backgroundColor: theme.colors.surfaceSecondary} : null,
+              ]}
+            >
+              {cardContent}
+            </Pressable>
+          ) : (
+            <View key={day.dateKey} style={[styles.dayCard, listCard]}>
+              {cardContent}
+            </View>
+          );
+        })
+      )}
+    </View>
+  );
+};
+
+export default AttendanceReportPanel;

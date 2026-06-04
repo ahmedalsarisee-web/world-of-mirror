@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "world-of-mirror",
+    "slug": "world-of-mirror",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
+      "package": "com.anonymous.worldofmirror"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-localization",
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow access to photos for product and order images."
+        }
+      ],
+      "expo-sharing",
+      "expo-asset",
+      [
+        "expo-notifications",
+        {
+          "color": "#6C4DFF"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "يستخدم التطبيق موقعك لتسجيل الحضور داخل موقع العمل ومشاركة موقعك مع الإدارة عند الحاجة."
+        }
+      ],
+      "@react-native-community/datetimepicker"
+    ]
+  }
+}
