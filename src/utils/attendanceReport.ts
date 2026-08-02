@@ -15,6 +15,16 @@ export interface AttendanceDaySummary {
   isOpen: boolean;
 }
 
+function createEmptyAttendanceDay(dateKey: string): AttendanceDaySummary {
+  return {
+    dateKey,
+    records: [],
+    sessions: [],
+    totalDurationSeconds: 0,
+    isOpen: false,
+  };
+}
+
 export interface AttendanceStats {
   daysWithCheckIn: number;
   completedSessions: number;
@@ -30,7 +40,7 @@ function pairAttendanceSessions(sortedRecords: AttendanceRecord[]): AttendanceSe
   let pendingCheckIn: AttendanceRecord | undefined;
 
   for (const record of sortedRecords) {
-    if (record.type === 'hours_reset') {
+    if (record.type === 'hours_reset' || record.type === 'absent') {
       continue;
     }
 
@@ -87,7 +97,7 @@ export function buildAttendanceDays(
         0,
       );
       const lastRecord = sorted[sorted.length - 1];
-      const isOpen = lastRecord?.type === 'check_in';
+      const isOpen = lastRecord?.type === 'check_in' && !sorted.some((record) => record.type === 'absent');
 
       if (includeLiveDuration && isOpen && lastRecord && dateKey === asOf.format('YYYY-MM-DD')) {
         totalDurationSeconds += Math.max(0, asOf.diff(dayjs(lastRecord.createdAt), 'second'));
@@ -204,6 +214,15 @@ export function hasOpenAttendanceToday(records: AttendanceRecord[]): boolean {
   return todayRecords[0]?.type === 'check_in';
 }
 
+export function getTodayAttendanceDay(
+  records: AttendanceRecord[],
+  asOf: dayjs.Dayjs = dayjs(),
+): AttendanceDaySummary | null {
+  const todayKey = asOf.format('YYYY-MM-DD');
+  const days = buildAttendanceDays(records, asOf, {includeLiveDuration: false});
+  return days.find((day) => day.dateKey === todayKey) ?? null;
+}
+
 /** Elapsed seconds for today's open check-in (0 if not currently checked in). */
 export function getOpenSessionElapsedSeconds(
   records: AttendanceRecord[],
@@ -281,4 +300,53 @@ export function computeDaySessionDurationSeconds(
 
 export function dayHasWorkRecords(day: AttendanceDaySummary): boolean {
   return day.records.some((record) => record.type === 'check_in' || record.type === 'check_out');
+}
+
+export function dayHasAttendanceActivity(day: AttendanceDaySummary): boolean {
+  return day.records.some(
+    (record) => record.type === 'check_in' || record.type === 'check_out' || record.type === 'absent',
+  );
+}
+
+export function expandAttendanceDaysForPeriod(
+  days: AttendanceDaySummary[],
+  periodStartIso: string | null | undefined,
+  asOf: dayjs.Dayjs = dayjs(),
+): AttendanceDaySummary[] {
+  const today = asOf.startOf('day');
+  let periodStart = today;
+
+  if (periodStartIso) {
+    periodStart = dayjs(periodStartIso).startOf('day');
+  } else if (days.length > 0) {
+    periodStart = dayjs(days[days.length - 1].dateKey).startOf('day');
+  }
+
+  if (periodStart.isAfter(today)) {
+    periodStart = today;
+  }
+
+  const dayMap = new Map(days.map((day) => [day.dateKey, day]));
+  const expanded: AttendanceDaySummary[] = [];
+  let cursor = periodStart;
+
+  while (!cursor.isAfter(today)) {
+    const dateKey = cursor.format('YYYY-MM-DD');
+    expanded.push(dayMap.get(dateKey) ?? createEmptyAttendanceDay(dateKey));
+    cursor = cursor.add(1, 'day');
+  }
+
+  return expanded.sort((a, b) => b.dateKey.localeCompare(a.dateKey));
+}
+
+export function dayIsAbsent(day: AttendanceDaySummary): boolean {
+  return day.records.some((record) => record.type === 'absent');
+}
+
+export function dayIsManageable(day: AttendanceDaySummary): boolean {
+  return dayHasWorkRecords(day) || dayIsAbsent(day) || !dayHasAttendanceActivity(day);
+}
+
+export function extractAbsentDayRecord(day: AttendanceDaySummary): AttendanceRecord | undefined {
+  return day.records.find((record) => record.type === 'absent');
 }

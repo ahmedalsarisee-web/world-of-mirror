@@ -1,5 +1,17 @@
 import type {TFunction} from 'i18next';
-import type {EmployeeFinanceCardLabels} from '@app/types/models';
+import type {AppUser, EmployeeFinanceCardLabels, EmployeeFinanceLedger} from '@app/types/models';
+
+export function isMemoFinanceLedger(
+  ledger: Pick<EmployeeFinanceLedger, 'memoOnly'> | null | undefined,
+): boolean {
+  return Boolean(ledger?.memoOnly);
+}
+
+export function shouldCountLedgerInFinanceTotals(
+  ledger: Pick<EmployeeFinanceLedger, 'memoOnly'> | null | undefined,
+): boolean {
+  return !isMemoFinanceLedger(ledger);
+}
 
 export const CUSTOM_LEDGER_COLORS = ['#7C3AED', '#059669', '#D97706', '#DB2777', '#0891B2'];
 
@@ -13,6 +25,46 @@ export function createFinanceLedgerId(): string {
 
 export function buildDelegatedFinanceLedgerAccessKey(ownerUserId: string, ledgerId: string): string {
   return `${ownerUserId}:${ledgerId}`;
+}
+
+export function hasDelegatedFinanceLedgerScope(
+  viewer: Pick<AppUser, 'delegatedFinanceLedgerAccess'> | null | undefined,
+  ownerUserId: string,
+  ledgerId: string,
+): boolean {
+  return (viewer?.delegatedFinanceLedgerAccess ?? []).includes(
+    buildDelegatedFinanceLedgerAccessKey(ownerUserId, ledgerId),
+  );
+}
+
+export function parseDelegatedFinanceLedgerAccessKey(
+  accessKey: string,
+): {ownerUserId: string; ledgerId: string} | null {
+  const separatorIndex = accessKey.indexOf(':');
+  if (separatorIndex <= 0) {
+    return null;
+  }
+
+  const ownerUserId = accessKey.slice(0, separatorIndex).trim();
+  const ledgerId = accessKey.slice(separatorIndex + 1).trim();
+  if (!ownerUserId || !ledgerId) {
+    return null;
+  }
+
+  return {ownerUserId, ledgerId};
+}
+
+export function getDelegatedFinanceLedgerOwnerIds(
+  viewer: Pick<AppUser, 'delegatedFinanceLedgerAccess'> | null | undefined,
+): string[] {
+  const ownerIds = new Set<string>();
+  for (const accessKey of viewer?.delegatedFinanceLedgerAccess ?? []) {
+    const parsed = parseDelegatedFinanceLedgerAccessKey(accessKey);
+    if (parsed) {
+      ownerIds.add(parsed.ownerUserId);
+    }
+  }
+  return [...ownerIds];
 }
 
 export function sortFinanceLedgersByCreatedAt<T extends {createdAt?: string}>(ledgers: T[]): T[] {

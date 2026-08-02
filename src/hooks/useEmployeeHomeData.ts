@@ -1,8 +1,6 @@
-import {useEffect, useMemo, useState} from 'react';
-import {subscribeToUserAttendance} from '@app/services/attendance.service';
+import {useMemo} from 'react';
 import {subscribeToUserTransactions} from '@app/services/transactions.service';
-import {subscribeToUser} from '@app/services/users.service';
-import type {AppUser, AttendanceRecord, Transaction} from '@app/types/models';
+import type {AppUser, Transaction} from '@app/types/models';
 import {
   buildAttendanceDays,
   computeAttendanceStats,
@@ -13,6 +11,8 @@ import {resolveCashAccountBalance} from '@app/utils/financeTotals';
 import {getCurrentPeriodStartIso, filterRecordsForCurrentPeriod} from '@app/utils/attendanceSchedule';
 import {useProcessAttendanceResets} from '@app/hooks/useProcessAttendanceResets';
 import {useFirestoreSubscription} from '@app/hooks/useFirestoreSubscription';
+import {useUserAttendanceDirectory} from '@app/hooks/useUserAttendanceDirectory';
+import {useAuthStore} from '@app/stores/authStore';
 import dayjs from 'dayjs';
 
 export interface EmployeeHomeData {
@@ -30,45 +30,31 @@ export function useEmployeeHomeData(
 ): EmployeeHomeData {
   const enabled = user?.role === 'employee';
   const userId = user?.id ?? '';
+  const liveProfile = useAuthStore((state) => (state.user?.id === userId ? state.user : user));
 
-  const {data: attendanceRecords, isLoading: attendanceLoading} = useFirestoreSubscription<
-    AttendanceRecord[]
-  >([], (callback) => subscribeToUserAttendance(userId, callback), [userId], {enabled: enabled && Boolean(userId)});
-
-  const {data: liveProfile, isLoading: profileLoading} = useFirestoreSubscription<AppUser | null>(
-    null,
-    (callback) => subscribeToUser(userId, callback),
-    [userId],
-    {enabled: enabled && Boolean(userId),
-  });
+  const {records: attendanceRecords, isLoading: attendanceLoading} = useUserAttendanceDirectory(
+    userId,
+    enabled && Boolean(userId),
+  );
 
   const profile = liveProfile ?? user;
   const permissions = useMemo(() => resolveEmployeePermissions(profile), [profile]);
-  const showFinance = permissions.finance;
+  const showOwnFinance = permissions.finance;
 
   useProcessAttendanceResets(
     profile,
     attendanceRecords,
-    enabled && Boolean(userId) && !attendanceLoading && !profileLoading,
+    enabled && Boolean(userId) && !attendanceLoading,
   );
 
   const {data: transactions, isLoading: transactionsLoading} = useFirestoreSubscription<Transaction[]>(
     [],
     (callback) => subscribeToUserTransactions(userId, callback),
     [userId],
-    {enabled: enabled && showFinance && Boolean(userId)},
+    {enabled: enabled && showOwnFinance && Boolean(userId)},
   );
 
-  const [storedBalance, setStoredBalance] = useState(0);
-
-  useEffect(() => {
-    if (!enabled || !showFinance || !userId) {
-      setStoredBalance(0);
-      return;
-    }
-
-    return subscribeToUser(userId, (profile) => setStoredBalance(profile?.balance ?? 0));
-  }, [enabled, showFinance, userId]);
+  const storedBalance = liveProfile?.balance ?? user?.balance ?? 0;
 
   const todayStatus = useMemo(
     () => getTodayAttendanceStatus(attendanceRecords, t),
@@ -92,8 +78,7 @@ export function useEmployeeHomeData(
   );
 
   const isLoading =
-    enabled &&
-    (attendanceLoading || profileLoading || (showFinance && transactionsLoading));
+    enabled && (attendanceLoading || (showOwnFinance && transactionsLoading));
 
   return {
     permissions,

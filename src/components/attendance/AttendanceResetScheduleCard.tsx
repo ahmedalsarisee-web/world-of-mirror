@@ -10,7 +10,7 @@ import {getListCardStyle} from '@shared/theme/themeHelpers';
 
 interface Props {
   schedule?: AttendanceHoursResetSchedule;
-  onPress: () => void;
+  onPress?: () => void;
 }
 
 const AttendanceResetScheduleCard: React.FC<Props> = ({schedule, onPress}) => {
@@ -51,11 +51,8 @@ const AttendanceResetScheduleCard: React.FC<Props> = ({schedule, onPress}) => {
     [row, theme],
   );
 
-  return (
-    <Pressable
-      style={({pressed}) => [listCard, styles.card, layoutStyle, {opacity: pressed ? 0.75 : 1}]}
-      onPress={onPress}
-    >
+  const content = (
+    <>
       <View style={styles.iconWrap}>
         <MaterialCommunityIcons name="backup-restore" size={18} color={theme.colors.warning} />
       </View>
@@ -67,7 +64,20 @@ const AttendanceResetScheduleCard: React.FC<Props> = ({schedule, onPress}) => {
           {formatScheduleSummary(schedule, t)}
         </Text>
       </View>
-      <MaterialCommunityIcons name={chevronForward} size={22} color={theme.colors.icon} />
+      {onPress ? <MaterialCommunityIcons name={chevronForward} size={22} color={theme.colors.icon} /> : null}
+    </>
+  );
+
+  if (!onPress) {
+    return <View style={[listCard, styles.card, layoutStyle]}>{content}</View>;
+  }
+
+  return (
+    <Pressable
+      style={({pressed}) => [listCard, styles.card, layoutStyle, {opacity: pressed ? 0.75 : 1}]}
+      onPress={onPress}
+    >
+      {content}
     </Pressable>
   );
 };

@@ -197,4 +197,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default FinanceTransactionRow;
+export default React.memo(FinanceTransactionRow);

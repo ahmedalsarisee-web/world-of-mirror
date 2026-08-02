@@ -55,10 +55,10 @@ export function createSeedUsers(): AppUser[] {
       email: 'other.admin@example.com',
       adminPermissions: getDefaultAdminPermissions(),
     },
-    {id: MOCK_EMPLOYEE_IDS.abdullah, name: 'Abdullah', role: 'employee', balance: 840, createdAt: now, permissions: {...employeeDefaults}, lastLocation: seedEmployeeLocation(0.0012, -0.0008)},
-    {id: MOCK_EMPLOYEE_IDS.ahmed, name: 'Ahmed', role: 'employee', balance: 620, createdAt: now, permissions: {...employeeDefaults, finance: false}, lastLocation: seedEmployeeLocation(-0.0006, 0.0011)},
-    {id: MOCK_EMPLOYEE_IDS.owais, name: 'Owais', role: 'employee', balance: 410, createdAt: now, permissions: {...employeeDefaults}},
-    {id: MOCK_EMPLOYEE_IDS.osama, name: 'Osama', role: 'employee', balance: 295, createdAt: now, permissions: {...employeeDefaults}},
-    {id: MOCK_EMPLOYEE_IDS.sami, name: 'Sami', role: 'employee', balance: 180, createdAt: now, permissions: {...employeeDefaults}},
+    {id: MOCK_EMPLOYEE_IDS.abdullah, name: 'Abdullah', role: 'employee', balance: 840, createdAt: now, email: 'abdullah@example.com', permissions: {...employeeDefaults}, lastLocation: seedEmployeeLocation(0.0012, -0.0008)},
+    {id: MOCK_EMPLOYEE_IDS.ahmed, name: 'Ahmed', role: 'employee', balance: 620, createdAt: now, email: 'ahmed@example.com', permissions: {...employeeDefaults, finance: false}, lastLocation: seedEmployeeLocation(-0.0006, 0.0011)},
+    {id: MOCK_EMPLOYEE_IDS.owais, name: 'Owais', role: 'employee', balance: 410, createdAt: now, email: 'owais@example.com', permissions: {...employeeDefaults}},
+    {id: MOCK_EMPLOYEE_IDS.osama, name: 'Osama', role: 'employee', balance: 295, createdAt: now, email: 'osama@example.com', permissions: {...employeeDefaults}},
+    {id: MOCK_EMPLOYEE_IDS.sami, name: 'Sami', role: 'employee', balance: 180, createdAt: now, email: 'sami@example.com', permissions: {...employeeDefaults}},
   ];
 }

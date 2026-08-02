@@ -10,6 +10,8 @@
       "supportsTablet": true
     },
     "android": {
+      "supportsRTL": true,
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -20,7 +22,8 @@
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.POST_NOTIFICATIONS"
       ],
       "package": "com.anonymous.worldofmirror"
     },
@@ -33,15 +36,26 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow access to photos for product and order images."
+          "photosPermission": "يستخدم التطبيق معرض الصور لإرفاق صور الاستديو والطلبات.",
+          "microphonePermission": false
         }
       ],
       "expo-sharing",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "يستخدم التطبيق مكتبة الصور لحفظ صور الكتالوج مع الملاحظات على جهازك.",
+          "savePhotosPermission": "يستخدم التطبيق مكتبة الصور لحفظ صور الكتالوج مع الملاحظات على جهازك."
+        }
+      ],
       "expo-asset",
+      "expo-image",
       [
         "expo-notifications",
         {
-          "color": "#6C4DFF"
+          "color": "#6C4DFF",
+          "defaultChannel": "confirmed-orders",
+          "enableBackgroundRemoteNotifications": true
         }
       ],
       [

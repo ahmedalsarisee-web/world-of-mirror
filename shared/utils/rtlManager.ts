@@ -1,5 +1,9 @@
 import {DevSettings, I18nManager, Platform} from 'react-native';
 
+export function ensureRtlAllowed(): void {
+  I18nManager.allowRTL(true);
+}
+
 export function applyRtlManager(isRTL: boolean): boolean {
   I18nManager.allowRTL(true);
   if (I18nManager.isRTL === isRTL) {
@@ -11,6 +15,9 @@ export function applyRtlManager(isRTL: boolean): boolean {
 
 export function reloadAppForRtlChange(): void {
   if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined') {
+      window.location.reload();
+    }
     return;
   }
   if (__DEV__ && DevSettings.reload) {

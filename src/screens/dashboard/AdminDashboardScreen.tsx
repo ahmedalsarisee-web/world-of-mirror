@@ -1,16 +1,19 @@
-import React, {useMemo} from 'react';
+import React, {useMemo, useState} from 'react';
 import {StyleSheet, Text, View} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {BottomTabNavigationProp} from '@react-navigation/bottom-tabs';
 import type {CompositeNavigationProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {useTranslation} from 'react-i18next';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import DashboardHeroCard from '@app/components/dashboard/DashboardHeroCard';
+import DashboardLazyLoadPrompt from '@app/components/dashboard/DashboardLazyLoadPrompt';
 import DashboardMetricGrid from '@app/components/dashboard/DashboardMetricGrid';
 import DashboardSection from '@app/components/dashboard/DashboardSection';
 import DashboardShortcutGrid from '@app/components/dashboard/DashboardShortcutGrid';
-import ListLoadingState from '@app/components/common/ListLoadingState';
 import ScreenContainer from '@app/components/common/ScreenContainer';
+import ScreenHeader from '@app/components/common/ScreenHeader';
+import AdminDashboardNotificationsAction from '@app/components/notifications/AdminDashboardNotificationsAction';
 import FinanceSummaryCards from '@app/components/finance/FinanceSummaryCards';
 import {useAdminDashboardData} from '@app/hooks/useAdminDashboardData';
 import {useDirection} from '@app/hooks/useDirection';
@@ -18,6 +21,8 @@ import {useTheme} from '@app/context/ThemeContext';
 import {useAuthStore} from '@app/stores/authStore';
 import type {DashboardStackParamList, MainTabParamList} from '@app/types/navigation';
 import {canAccessEmployeeManagement} from '@app/utils/adminPermissions';
+import {canViewNotificationsLog} from '@app/utils/employeePermissions';
+import {getTabBarHeight} from '@app/utils/tabBarInsets';
 
 type DashboardNav = CompositeNavigationProp<
   NativeStackNavigationProp<DashboardStackParamList, 'DashboardHome'>,
@@ -28,33 +33,40 @@ const AdminDashboardScreen: React.FC = () => {
   const {t} = useTranslation();
   const {theme} = useTheme();
   const {textStyle} = useDirection();
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<DashboardNav>();
   const currentUser = useAuthStore((s) => s.user);
   const isAdmin = currentUser?.role === 'admin';
+  const showNotificationsIcon = canViewNotificationsLog(currentUser);
+  const [loadFinance, setLoadFinance] = useState(false);
+  const [loadMetrics, setLoadMetrics] = useState(false);
   const {
     employees,
     presentCount,
     globalBalance,
     cashIn,
     cashOut,
-    isLoading,
-  } = useAdminDashboardData(isAdmin);
+    financeLoading,
+    metricsLoading,
+  } = useAdminDashboardData(isAdmin, {loadFinance, loadMetrics});
+
+  const bottomPadding = useMemo(() => getTabBarHeight(insets) + theme.spacing.sm, [insets, theme.spacing.sm]);
 
   const styles = useMemo(
     () =>
       StyleSheet.create({
         content: {
+          flex: 1,
           gap: theme.spacing.xs,
-          paddingBottom: theme.spacing.xxl,
+          paddingBottom: bottomPadding,
         },
-        screenTitle: {
-          fontSize: theme.typographyScale.size.xxl ?? theme.typographyScale.size.xl,
-          fontWeight: '800',
-          marginBottom: theme.spacing.sm,
-          letterSpacing: -0.3,
+        body: {
+          flex: 1,
+          justifyContent: 'space-between',
+          gap: theme.spacing.xs,
         },
       }),
-    [theme],
+    [bottomPadding, theme],
   );
 
   const awayCount = Math.max(0, employees.length - presentCount);
@@ -143,60 +155,85 @@ const AdminDashboardScreen: React.FC = () => {
     );
   }
 
-  if (isLoading) {
-    return (
-      <ScreenContainer contentStyle={styles.content}>
-        <Text style={[styles.screenTitle, textStyle, {color: theme.typography.primary}]}>
-          {t('dashboard')}
-        </Text>
-        <ListLoadingState />
-      </ScreenContainer>
-    );
-  }
-
   return (
-    <ScreenContainer contentStyle={styles.content}>
-      <Text style={[styles.screenTitle, textStyle, {color: theme.typography.primary}]}>
-        {t('dashboard')}
-      </Text>
-
-      <DashboardHeroCard
-        title={t('dashboardWelcome', {name: currentUser?.name ?? t('adminRole')})}
-        subtitle={t('dashboardSubtitle')}
-        userName={currentUser?.name}
-        gradientColors={theme.gradient.header}
+    <>
+      <ScreenHeader
+        title={t('dashboard')}
+        endAction={showNotificationsIcon ? <AdminDashboardNotificationsAction /> : undefined}
       />
+      <ScreenContainer scroll={false} contentStyle={styles.content}>
+        <DashboardHeroCard
+          variant="compact"
+          title={t('dashboardWelcome', {name: currentUser?.name ?? t('adminRole')})}
+          subtitle={t('dashboardSubtitle')}
+          userName={currentUser?.name}
+          gradientColors={theme.gradient.header}
+        />
 
-      <DashboardSection
-        title={t('dashboardFinanceSection')}
-        subtitle={t('dashboardFinanceSectionHint')}
-        icon="chart-box-outline"
-        iconColor={theme.colors.primary}
-        iconBackground={theme.colors.surfaceSecondary}
-      >
-        <FinanceSummaryCards cashIn={cashIn} cashOut={cashOut} totalBalance={globalBalance} loading={false} />
-      </DashboardSection>
+        <View style={styles.body}>
+          <DashboardSection
+            compact
+            title={t('dashboardFinanceSection')}
+            icon="chart-box-outline"
+            iconColor={theme.colors.primary}
+            iconBackground={theme.colors.surfaceSecondary}
+          >
+            {loadFinance ? (
+              <FinanceSummaryCards
+                cashIn={cashIn}
+                cashOut={cashOut}
+                totalBalance={globalBalance}
+                loading={financeLoading}
+                variant="compact"
+              />
+            ) : (
+              <DashboardLazyLoadPrompt
+                label={t('dashboardTapToLoadFinance')}
+                hint={t('dashboardFinanceSectionHint')}
+                onPress={() => setLoadFinance(true)}
+              />
+            )}
+          </DashboardSection>
 
-      <DashboardSection
-        title={t('dashboardTodaySection')}
-        subtitle={t('dashboardTodaySectionHint')}
-        icon="calendar-today"
-        iconColor={theme.colors.success}
-        iconBackground={theme.colors.successLight}
-      >
-        <DashboardMetricGrid metrics={metrics} />
-      </DashboardSection>
+          <DashboardSection
+            compact
+            title={t('dashboardTodaySection')}
+            icon="calendar-today"
+            iconColor={theme.colors.success}
+            iconBackground={theme.colors.successLight}
+          >
+            {loadMetrics ? (
+              metricsLoading ? (
+                <DashboardLazyLoadPrompt
+                  label={t('dashboardTapToLoadMetrics')}
+                  hint={t('dashboardTodaySectionHint')}
+                  loading
+                  onPress={() => undefined}
+                />
+              ) : (
+                <DashboardMetricGrid metrics={metrics} variant="compact" />
+              )
+            ) : (
+              <DashboardLazyLoadPrompt
+                label={t('dashboardTapToLoadMetrics')}
+                hint={t('dashboardTodaySectionHint')}
+                onPress={() => setLoadMetrics(true)}
+              />
+            )}
+          </DashboardSection>
 
-      <DashboardSection
-        title={t('dashboardQuickAccess')}
-        subtitle={t('dashboardQuickAccessHint')}
-        icon="lightning-bolt-outline"
-        iconColor={theme.colors.warning}
-        iconBackground={theme.colors.surfaceSecondary}
-      >
-        <DashboardShortcutGrid shortcuts={shortcuts} />
-      </DashboardSection>
-    </ScreenContainer>
+          <DashboardSection
+            compact
+            title={t('dashboardQuickAccess')}
+            icon="lightning-bolt-outline"
+            iconColor={theme.colors.warning}
+            iconBackground={theme.colors.surfaceSecondary}
+          >
+            <DashboardShortcutGrid shortcuts={shortcuts} variant="grid" />
+          </DashboardSection>
+        </View>
+      </ScreenContainer>
+    </>
   );
 };
 

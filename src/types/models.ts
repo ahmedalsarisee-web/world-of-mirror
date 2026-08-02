@@ -4,9 +4,23 @@ export type EmployeePermissionModule = 'finance';
 
 export interface EmployeePermissions {
   finance: boolean;
+  /** When enabled, employee can view and manage other employees' finance accounts. */
+  employeeFinance: boolean;
+  /** When enabled, employee can view other employees' attendance records. */
+  employeeAttendance: boolean;
   attendanceLocationRequired: boolean;
   /** When enabled, device location must stay on while checked in; disabling GPS auto check-out. */
   attendanceGpsLinked: boolean;
+  /** When enabled, employee can move orders between status lists. */
+  moveOrders: boolean;
+  /** When enabled, employee can delete confirmed orders. */
+  deleteOrders: boolean;
+  /** When enabled, employee can leave a note on an active order card. */
+  orderCardNotes: boolean;
+  /** When enabled, employee can edit financial transactions without the time limit. */
+  editFinanceTransactions: boolean;
+  /** When enabled, employee sees the notifications log icon on the dashboard. */
+  showNotificationsIcon: boolean;
 }
 
 export interface AdminPermissions {
@@ -33,6 +47,8 @@ export interface EmployeeFinanceLedger {
   createdByUserId?: string;
   /** User IDs (employees/admins) who may view this card besides the account owner and managing admins. */
   visibleToUserIds?: string[];
+  /** Personal note card for the owner only; excluded from finance totals. */
+  memoOnly?: boolean;
 }
 
 export interface EmployeeFinanceCardLabels {
@@ -73,6 +89,9 @@ export interface AppUser {
   attendanceResetSchedule?: AttendanceHoursResetSchedule;
   attendanceResetScheduleUpdatedAt?: string;
   attendanceLastResetBoundary?: string;
+  /** Max hours per check-in session; auto check-out when elapsed. Admin-configured per employee. */
+  attendanceShiftHours?: number;
+  attendanceShiftHoursUpdatedAt?: string;
   /** Keys `${ownerUserId}:${ledgerId}` for admin finance cards shared with this employee. */
   delegatedFinanceLedgerAccess?: string[];
   /** Latest GPS position reported from the employee device. */
@@ -81,6 +100,8 @@ export interface AppUser {
   expoPushTokens?: string[];
   /** Last GPS heartbeat while checked in with GPS-linked attendance (ISO). */
   attendanceGpsHeartbeatAt?: string;
+  /** Set when an employee is removed from management but their finance account is preserved. */
+  archivedAt?: string;
 }
 
 export type TransactionType =
@@ -115,7 +136,7 @@ export interface TransactionFormData {
   note?: string;
 }
 
-export type AttendanceEventType = 'check_in' | 'check_out' | 'hours_reset';
+export type AttendanceEventType = 'check_in' | 'check_out' | 'hours_reset' | 'absent';
 
 export interface AttendanceRecord {
   id: string;

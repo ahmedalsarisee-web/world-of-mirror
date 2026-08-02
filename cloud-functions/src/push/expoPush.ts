@@ -24,6 +24,7 @@ export async function sendExpoPushToTokens(
       sound: 'default' as const,
       title: payload.title,
       body: payload.body,
+      priority: 'high' as const,
       data: payload.data ?? {},
       ...(payload.channelId ? {channelId: payload.channelId} : {}),
     }));

@@ -67,3 +67,45 @@ export const deleteAuthUser = onCall(async (request) => {
 
   return { success: true };
 });
+
+async function assertCallerIsAdmin(callerUid: string): Promise<void> {
+  const callerSnap = await db.doc(`users/${callerUid}`).get();
+  if (!callerSnap.exists || callerSnap.data()?.role !== 'admin') {
+    throw new HttpsError('permission-denied', 'Admin only.');
+  }
+}
+
+export const backfillMissingProfileEmails = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Authentication required.');
+  }
+
+  await assertCallerIsAdmin(request.auth.uid);
+
+  const snap = await db.collection('users').get();
+  let updated = 0;
+
+  for (const userDoc of snap.docs) {
+    const data = userDoc.data();
+    if (data.archivedAt) {
+      continue;
+    }
+    if (typeof data.email === 'string' && data.email.trim()) {
+      continue;
+    }
+
+    try {
+      const authUser = await auth.getUser(userDoc.id);
+      const email = authUser.email?.trim().toLowerCase();
+      if (!email) {
+        continue;
+      }
+      await userDoc.ref.update({email});
+      updated += 1;
+    } catch {
+      // Skip profiles without a matching Auth account.
+    }
+  }
+
+  return {updated};
+});

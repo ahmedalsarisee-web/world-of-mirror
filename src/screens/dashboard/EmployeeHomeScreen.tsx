@@ -5,11 +5,15 @@ import type {BottomTabNavigationProp} from '@react-navigation/bottom-tabs';
 import type {CompositeNavigationProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {useTranslation} from 'react-i18next';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import DashboardHeroCard from '@app/components/dashboard/DashboardHeroCard';
+import DashboardMetricGrid from '@app/components/dashboard/DashboardMetricGrid';
 import DashboardSection from '@app/components/dashboard/DashboardSection';
 import DashboardShortcutGrid from '@app/components/dashboard/DashboardShortcutGrid';
 import ListLoadingState from '@app/components/common/ListLoadingState';
 import ScreenContainer from '@app/components/common/ScreenContainer';
+import ScreenHeader from '@app/components/common/ScreenHeader';
+import AdminDashboardNotificationsAction from '@app/components/notifications/AdminDashboardNotificationsAction';
 import AttendanceLocationPermissionCard from '@app/components/attendance/AttendanceLocationPermissionCard';
 import EmployeeHomeAttendanceCard from '@app/components/employee-home/EmployeeHomeAttendanceCard';
 import EmployeeHomeBalanceCard from '@app/components/employee-home/EmployeeHomeBalanceCard';
@@ -20,6 +24,10 @@ import {useDirection} from '@app/hooks/useDirection';
 import {useTheme} from '@app/context/ThemeContext';
 import {useAuthStore} from '@app/stores/authStore';
 import type {DashboardStackParamList, MainTabParamList} from '@app/types/navigation';
+import {formatAttendanceDuration} from '@app/utils/attendanceReport';
+import {canViewNotificationsLog} from '@app/utils/employeePermissions';
+import {getTabBarHeight} from '@app/utils/tabBarInsets';
+
 type HomeNav = CompositeNavigationProp<
   NativeStackNavigationProp<DashboardStackParamList, 'DashboardHome'>,
   BottomTabNavigationProp<MainTabParamList>
@@ -29,9 +37,11 @@ const EmployeeHomeScreen: React.FC = () => {
   const {t} = useTranslation();
   const {theme} = useTheme();
   const {textStyle} = useDirection();
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<HomeNav>();
   const currentUser = useAuthStore((s) => s.user);
   const isEmployee = currentUser?.role === 'employee';
+  const showNotificationsIcon = canViewNotificationsLog(currentUser);
 
   const {
     permissions,
@@ -57,23 +67,62 @@ const EmployeeHomeScreen: React.FC = () => {
     requireGpsLinked: permissions.attendanceGpsLinked,
   });
 
-  const showFinance = permissions.finance;
+  const showFinanceShortcut = permissions.finance || permissions.employeeFinance;
+  const showOwnFinanceBalance = permissions.finance;
+
+  const bottomPadding = useMemo(() => getTabBarHeight(insets) + theme.spacing.sm, [insets, theme.spacing.sm]);
 
   const styles = useMemo(
     () =>
       StyleSheet.create({
         content: {
+          flex: 1,
           gap: theme.spacing.xs,
-          paddingBottom: theme.spacing.xxl,
+          paddingBottom: bottomPadding,
         },
-        screenTitle: {
-          fontSize: theme.typographyScale.size.xxl ?? theme.typographyScale.size.xl,
-          fontWeight: '800',
-          marginBottom: theme.spacing.sm,
-          letterSpacing: -0.3,
+        body: {
+          flex: 1,
+          justifyContent: 'space-between',
+          gap: theme.spacing.xs,
+        },
+        attendanceStack: {
+          gap: theme.spacing.xs,
         },
       }),
-    [theme],
+    [bottomPadding, theme],
+  );
+
+  const attendanceMetrics = useMemo(
+    () => [
+      {
+        key: 'days',
+        icon: 'calendar-check' as const,
+        iconColor: theme.colors.success,
+        iconBackground: theme.colors.successLight,
+        accentColor: theme.colors.success,
+        label: t('attendanceDays'),
+        value: String(attendanceStats.daysWithCheckIn),
+      },
+      {
+        key: 'sessions',
+        icon: 'calendar-sync' as const,
+        iconColor: theme.colors.primary,
+        iconBackground: theme.colors.surfaceSecondary,
+        accentColor: theme.colors.primary,
+        label: t('attendanceCompletedDays'),
+        value: String(attendanceStats.completedSessions),
+      },
+      {
+        key: 'hours',
+        icon: 'clock-outline' as const,
+        iconColor: theme.colors.warning,
+        iconBackground: theme.colors.surfaceSecondary,
+        accentColor: theme.colors.warning,
+        label: t('attendanceTotalHours'),
+        value: formatAttendanceDuration(attendanceStats.totalSeconds),
+      },
+    ],
+    [attendanceStats, t, theme],
   );
 
   const shortcuts = useMemo(() => {
@@ -100,7 +149,7 @@ const EmployeeHomeScreen: React.FC = () => {
       },
     ];
 
-    if (showFinance) {
+    if (showFinanceShortcut) {
       items.push({
         key: 'finance',
         icon: 'cash-multiple' as const,
@@ -114,7 +163,7 @@ const EmployeeHomeScreen: React.FC = () => {
     }
 
     return items;
-  }, [navigation, showFinance, t, theme]);
+  }, [navigation, showFinanceShortcut, t, theme]);
 
   if (!isEmployee) {
     return (
@@ -126,79 +175,93 @@ const EmployeeHomeScreen: React.FC = () => {
 
   if (isLoading) {
     return (
-      <ScreenContainer contentStyle={styles.content}>
-        <Text style={[styles.screenTitle, textStyle, {color: theme.typography.primary}]}>
-          {t('employeeHome')}
-        </Text>
-        <ListLoadingState />
-      </ScreenContainer>
+      <>
+        <ScreenHeader
+          title={t('employeeHome')}
+          endAction={showNotificationsIcon ? <AdminDashboardNotificationsAction /> : undefined}
+        />
+        <ScreenContainer scroll={false} contentStyle={styles.content}>
+          <ListLoadingState />
+        </ScreenContainer>
+      </>
     );
   }
 
   return (
-    <ScreenContainer contentStyle={styles.content}>
-      <Text style={[styles.screenTitle, textStyle, {color: theme.typography.primary}]}>
-        {t('employeeHome')}
-      </Text>
-
+    <>
+      <ScreenHeader
+        title={t('employeeHome')}
+        endAction={showNotificationsIcon ? <AdminDashboardNotificationsAction /> : undefined}
+      />
+      <ScreenContainer scroll={false} contentStyle={styles.content}>
       <DashboardHeroCard
+        variant="compact"
         title={t('dashboardWelcome', {name: currentUser?.name ?? t('employeeRole')})}
         subtitle={t('employeeHomeSubtitle')}
         userName={currentUser?.name}
         gradientColors={theme.gradient.profile}
       />
 
-      <DashboardSection
-        title={t('employeeHomeAttendanceSection')}
-        subtitle={todayStatus}
-        icon="fingerprint"
-        iconColor={theme.colors.primary}
-        iconBackground={theme.colors.surfaceSecondary}
-      >
-        {needsLocationForAttendance ? (
-          <AttendanceLocationPermissionCard
-            state={locationPermission.state}
-            onRequestPermission={handleRequestLocationPermission}
-            loading={permissionLoading}
-          />
-        ) : null}
-        <EmployeeHomeAttendanceCard
-          records={attendanceRecords}
-          daysWithCheckIn={attendanceStats.daysWithCheckIn}
-          totalSeconds={attendanceStats.totalSeconds}
-          todayStatus={todayStatus}
-          onAction={handleAttendanceAction}
-          actionLoading={actionLoading}
-          requireLocationCheck={permissions.attendanceLocationRequired}
-          requireGpsLinked={permissions.attendanceGpsLinked}
-        />
-      </DashboardSection>
-
-      {showFinance ? (
+      <View style={styles.body}>
         <DashboardSection
-          title={t('finance')}
-          subtitle={t('dashboardFinanceSectionHint')}
-          icon="wallet-outline"
-          iconColor={theme.colors.success}
-          iconBackground={theme.colors.successLight}
+          compact
+          title={t('employeeHomeAttendanceSection')}
+          icon="fingerprint"
+          iconColor={theme.colors.primary}
+          iconBackground={theme.colors.surfaceSecondary}
         >
-          <EmployeeHomeBalanceCard
-            balance={balance}
-            onPress={() => navigation.navigate('FinanceTab', {screen: 'FinanceHome'})}
-          />
+          <View style={styles.attendanceStack}>
+            {needsLocationForAttendance ? (
+              <AttendanceLocationPermissionCard
+                variant="compact"
+                state={locationPermission.state}
+                onRequestPermission={handleRequestLocationPermission}
+                loading={permissionLoading}
+              />
+            ) : null}
+            <EmployeeHomeAttendanceCard
+              variant="compact"
+              records={attendanceRecords}
+              daysWithCheckIn={attendanceStats.daysWithCheckIn}
+              totalSeconds={attendanceStats.totalSeconds}
+              todayStatus={todayStatus}
+              onAction={handleAttendanceAction}
+              actionLoading={actionLoading}
+              requireLocationCheck={permissions.attendanceLocationRequired}
+              requireGpsLinked={permissions.attendanceGpsLinked}
+            />
+            <DashboardMetricGrid metrics={attendanceMetrics} variant="compact" />
+          </View>
         </DashboardSection>
-      ) : null}
 
-      <DashboardSection
-        title={t('dashboardQuickAccess')}
-        subtitle={t('dashboardQuickAccessHint')}
-        icon="lightning-bolt-outline"
-        iconColor={theme.colors.warning}
-        iconBackground={theme.colors.surfaceSecondary}
-      >
-        <DashboardShortcutGrid shortcuts={shortcuts} />
-      </DashboardSection>
-    </ScreenContainer>
+        {showOwnFinanceBalance ? (
+          <DashboardSection
+            compact
+            title={t('finance')}
+            icon="wallet-outline"
+            iconColor={theme.colors.success}
+            iconBackground={theme.colors.successLight}
+          >
+            <EmployeeHomeBalanceCard
+              variant="compact"
+              balance={balance}
+              onPress={() => navigation.navigate('FinanceTab', {screen: 'FinanceHome'})}
+            />
+          </DashboardSection>
+        ) : null}
+
+        <DashboardSection
+          compact
+          title={t('dashboardQuickAccess')}
+          icon="lightning-bolt-outline"
+          iconColor={theme.colors.warning}
+          iconBackground={theme.colors.surfaceSecondary}
+        >
+          <DashboardShortcutGrid shortcuts={shortcuts} variant="grid" />
+        </DashboardSection>
+      </View>
+      </ScreenContainer>
+    </>
   );
 };
 

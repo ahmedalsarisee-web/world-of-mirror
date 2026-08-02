@@ -17,6 +17,9 @@ const LinkableText: React.FC<Props> = ({text, style, linkStyle, numberOfLines}) 
   const styles = useMemo(
     () =>
       StyleSheet.create({
+        root: {
+          alignSelf: 'flex-start',
+        },
         link: {
           color: '#2563EB',
           textDecorationLine: 'underline',
@@ -43,7 +46,7 @@ const LinkableText: React.FC<Props> = ({text, style, linkStyle, numberOfLines}) 
   );
 
   return (
-    <Text style={style} numberOfLines={numberOfLines}>
+    <Text style={[styles.root, style]} numberOfLines={numberOfLines}>
       {segments.map((segment, index) => {
         if (segment.type === 'link') {
           return (

@@ -8,8 +8,10 @@ import {
   View,
   type NativeSyntheticEvent,
   type TextInputFocusEventData,
+  type TextInputContentSizeChangeEventData,
   type TextInputProps,
   type TextInputSubmitEditingEventData,
+  type ViewStyle,
 } from 'react-native';
 import {MaterialCommunityIcons} from '@expo/vector-icons';
 import {useTranslation} from 'react-i18next';
@@ -30,6 +32,13 @@ interface Props extends Omit<TextInputProps, 'value'> {
   onNumberChange?: (value: number) => void;
   /** Green checkmark inside the field (e.g. confirmed dimension). */
   showSuccess?: boolean;
+  /** Smaller label and input for dense forms. */
+  compact?: boolean;
+  /** Multiline input grows with content instead of scrolling inside a fixed height. */
+  autoGrow?: boolean;
+  /** Force left-to-right text for numbers, phones, URLs, etc. */
+  forceLtr?: boolean;
+  containerStyle?: ViewStyle;
 }
 
 /** Pad keyboards hide Next/Done — use numeric so the return key appears on iOS. */
@@ -70,13 +79,21 @@ const AppInput = forwardRef<TextInput, Props>(function AppInput(
     secureTextEntry,
     selectTextOnFocus,
     showSuccess,
+    compact = false,
+    autoGrow = false,
+    forceLtr = false,
+    containerStyle,
+    multiline,
+    numberOfLines,
+    onContentSizeChange,
+    scrollEnabled,
     ...props
   },
   ref,
 ) {
   const {t} = useTranslation();
   const {theme} = useTheme();
-  const {textAlign, writingDirection, textStyle, fontFamily, appFont, ltrTextStyle, isRTL} = useDirection();
+  const {textStyle, fontFamily, appFont, ltrTextStyle, inputTextStyle, isRTL} = useDirection();
   const keyboard = useFormKeyboard();
   const wrapperRef = useRef<View>(null);
   const inputRef = useRef<TextInput>(null);
@@ -93,6 +110,19 @@ const AppInput = forwardRef<TextInput, Props>(function AppInput(
       inputRef.current?.setSelection(length, length);
     });
   };
+
+  const selectAllText = (length: number) => {
+    requestAnimationFrame(() => {
+      if (length > 0) {
+        inputRef.current?.setSelection(0, length);
+      }
+    });
+  };
+
+  const isMultiline = Boolean(multiline);
+  const isAutoGrowMultiline = isMultiline && autoGrow;
+  const autoGrowMinHeight = compact ? 40 : 96;
+  const [autoGrowHeight, setAutoGrowHeight] = useState<number | null>(null);
 
   useEffect(() => {
     if (!numeric || isFocusedRef.current) {
@@ -114,15 +144,29 @@ const AppInput = forwardRef<TextInput, Props>(function AppInput(
   const isRegistered = fieldIndex >= 0;
   const isLastField = isRegistered && fieldIndex === keyboard!.fields.length - 1;
   const resolvedReturnKeyType =
-    returnKeyType ?? (isLastField ? 'done' : 'next');
-  const resolvedBlurOnSubmit = blurOnSubmit ?? (isLastField ? true : false);
-  const resolvedSubmitBehavior = submitBehavior ?? (isLastField ? 'blurAndSubmit' : 'submit');
+    returnKeyType ?? (isMultiline ? 'default' : isLastField ? 'done' : 'next');
+  const resolvedBlurOnSubmit =
+    blurOnSubmit ?? (isMultiline ? false : isLastField ? true : false);
+  const resolvedSubmitBehavior =
+    submitBehavior ?? (isMultiline ? 'newline' : isLastField ? 'blurAndSubmit' : 'submit');
   const resolvedKeyboardType = numeric ? 'decimal-pad' : resolveKeyboardType(keyboardType);
   const usesNumericLayout =
     numeric ||
     resolvedKeyboardType === 'numeric' ||
     resolvedKeyboardType === 'number-pad' ||
     resolvedKeyboardType === 'decimal-pad';
+  const usesLtrInput =
+    forceLtr ||
+    usesNumericLayout ||
+    keyboardType === 'url' ||
+    keyboardType === 'email-address' ||
+    keyboardType === 'phone-pad';
+  const fieldTextStyle = usesLtrInput
+    ? {...ltrTextStyle, textAlign: 'left', writingDirection: 'ltr'}
+    : inputTextStyle;
+  const labelTextStyle = usesLtrInput
+    ? ltrTextStyle
+    : {...inputTextStyle, alignSelf: 'stretch' as const, width: '100%' as const};
   const hasTrailingIcon = isPasswordField || showSuccess;
   const showNumericDraft = isFocused || isFocusedRef.current;
   const textValue = numeric
@@ -130,6 +174,15 @@ const AppInput = forwardRef<TextInput, Props>(function AppInput(
       ? numericText
       : resolveNumericDisplay(value, preserveZero)
     : String(value ?? '');
+
+  useEffect(() => {
+    if (!isAutoGrowMultiline) {
+      return;
+    }
+    if (!textValue.trim()) {
+      setAutoGrowHeight(null);
+    }
+  }, [isAutoGrowMultiline, textValue]);
 
   const handleChangeText = (text: string) => {
     if (numeric && onNumberChange) {
@@ -148,7 +201,7 @@ const AppInput = forwardRef<TextInput, Props>(function AppInput(
       const display = resolveNumericDisplay(value, preserveZero);
       setNumericText(display);
       setIsFocused(true);
-      moveCaretToEnd(display.length);
+      selectAllText(display.length);
     }
     if (fieldKey && keyboard) {
       keyboard.onFieldFocus(fieldKey);
@@ -166,7 +219,7 @@ const AppInput = forwardRef<TextInput, Props>(function AppInput(
   };
 
   const handleSubmitEditing = (event: NativeSyntheticEvent<TextInputSubmitEditingEventData>) => {
-    if (fieldKey && keyboard) {
+    if (fieldKey && keyboard && !isMultiline) {
       if (isLastField) {
         Keyboard.dismiss();
       } else {
@@ -176,15 +229,36 @@ const AppInput = forwardRef<TextInput, Props>(function AppInput(
     onSubmitEditing?.(event);
   };
 
+  const handleContentSizeChange = (
+    event: NativeSyntheticEvent<TextInputContentSizeChangeEventData>,
+  ) => {
+    if (isAutoGrowMultiline) {
+      const contentHeight = Math.ceil(event.nativeEvent.contentSize.height);
+      const verticalPadding = compact ? 16 : 24;
+      setAutoGrowHeight(Math.max(autoGrowMinHeight, contentHeight + verticalPadding));
+    }
+    onContentSizeChange?.(event);
+  };
+
   return (
-    <View ref={wrapperRef} style={styles.wrapper} collapsable={false}>
+    <View
+      ref={wrapperRef}
+      style={[styles.wrapper, compact ? styles.wrapperCompact : null, containerStyle]}
+      collapsable={false}
+    >
       <Text
-        style={[styles.label, textStyle, appFont('semibold'), {color: theme.typography.secondary}]}
+        style={[
+          styles.label,
+          compact ? styles.labelCompact : null,
+          labelTextStyle,
+          appFont('semibold'),
+          {color: error ? theme.status.error : theme.typography.secondary},
+        ]}
         numberOfLines={2}
       >
         {label}
       </Text>
-      <View style={styles.inputContainer}>
+      <View style={[styles.inputContainer, usesLtrInput ? styles.ltrInputContainer : null]}>
         <TextInput
           ref={inputRef}
           placeholderTextColor={theme.colors.placeholder}
@@ -198,22 +272,35 @@ const AppInput = forwardRef<TextInput, Props>(function AppInput(
           onFocus={handleFocus}
           onBlur={handleBlur}
           onSubmitEditing={handleSubmitEditing}
+          multiline={multiline}
+          numberOfLines={isAutoGrowMultiline ? undefined : numberOfLines}
+          scrollEnabled={isAutoGrowMultiline ? false : scrollEnabled}
+          onContentSizeChange={handleContentSizeChange}
           {...props}
-          selectTextOnFocus={numeric ? false : selectTextOnFocus}
+          selectTextOnFocus={selectTextOnFocus ?? (numeric ? true : undefined)}
           style={[
             styles.input,
+            compact ? styles.inputCompact : null,
             hasTrailingIcon ? (isRTL ? styles.inputWithToggleRtl : styles.inputWithToggle) : null,
             {
               color: theme.typography.primary,
               borderColor: error ? theme.status.error : theme.colors.inputBorder,
               backgroundColor: theme.colors.inputBackground,
               borderRadius: theme.components.input.radius,
-              minHeight: theme.components.input.height,
+              minHeight: isAutoGrowMultiline ? autoGrowMinHeight : compact ? 40 : theme.components.input.height,
               fontFamily,
               ...appFont('medium'),
-              ...(usesNumericLayout ? ltrTextStyle : {textAlign, writingDirection}),
+              ...fieldTextStyle,
             },
-            props.multiline ? styles.multiline : null,
+            isMultiline && !isAutoGrowMultiline
+              ? compact
+                ? styles.multilineCompact
+                : styles.multiline
+              : null,
+            isAutoGrowMultiline ? (compact ? styles.multilineAutoGrowCompact : styles.multilineAutoGrow) : null,
+            isAutoGrowMultiline && autoGrowHeight != null
+              ? {height: autoGrowHeight, minHeight: autoGrowHeight}
+              : null,
             style,
           ]}
         />
@@ -247,15 +334,25 @@ const AppInput = forwardRef<TextInput, Props>(function AppInput(
 
 const styles = StyleSheet.create({
   wrapper: {marginBottom: 14},
+  wrapperCompact: {marginBottom: 8},
   label: {fontSize: 13, marginBottom: 6},
+  labelCompact: {fontSize: 12, marginBottom: 4},
   inputContainer: {
     position: 'relative',
+  },
+  ltrInputContainer: {
+    direction: 'ltr',
   },
   input: {
     borderWidth: 1,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
+  },
+  inputCompact: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 14,
   },
   inputWithToggle: {
     paddingRight: 44,
@@ -279,6 +376,19 @@ const styles = StyleSheet.create({
   multiline: {
     minHeight: 96,
     paddingTop: 12,
+    textAlignVertical: 'top',
+  },
+  multilineCompact: {
+    minHeight: 68,
+    paddingTop: 8,
+    textAlignVertical: 'top',
+  },
+  multilineAutoGrow: {
+    paddingTop: 12,
+    textAlignVertical: 'top',
+  },
+  multilineAutoGrowCompact: {
+    paddingTop: 8,
     textAlignVertical: 'top',
   },
   error: {fontSize: 12, marginTop: 4},

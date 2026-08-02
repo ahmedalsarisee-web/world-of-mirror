@@ -37,6 +37,9 @@ export function computeMirrorCostComponents(lengthCm: number, widthCm: number): 
 export function computeMirrorCostOrderOptions(components: MirrorPricingComponents): MirrorOrderOption[] {
   const {area, mirror4mm, normalLighting, groove, design, touchButton} = components;
   const upgrade = (price4mm: number) => price6mmFrom4mm(price4mm, area);
+  const naturalSilver4mm = area * 45;
+  const naturalSilver6mm = area * 49;
+  const coloredBaklava = area * 55;
 
   const plain = mirror4mm;
   const plainNormalLight = mirror4mm + normalLighting;
@@ -100,21 +103,6 @@ export function computeMirrorCostOrderOptions(components: MirrorPricingComponent
       price4mm: designGrooveTouch,
       price6mm: upgrade(designGrooveTouch),
     },
-  ];
-}
-
-export function computeMirrorCostExtraPrices(components: MirrorPricingComponents): MirrorExtraPrice[] {
-  const {area, perimeter} = components;
-  const naturalSilver4mm = area * 45;
-  const naturalSilver6mm = area * 49;
-  const coloredBaklava = area * 55;
-
-  return [
-    {id: 'iron_frame', labelKey: 'mirrorExtraIronFrame', price4mm: perimeter * 5.5},
-    {id: 'wood_frame', labelKey: 'mirrorExtraWoodFrame', price4mm: perimeter * 5.5},
-    {id: 'glass_transparent', labelKey: 'mirrorExtraGlassTransparent', price6mm: area * 11},
-    {id: 'glass_black', labelKey: 'mirrorExtraGlassBlack', price6mm: area * 13},
-    {id: 'glass_bronze', labelKey: 'mirrorExtraGlassBronze', price6mm: area * 13},
     {
       id: 'baklava_natural',
       labelKey: 'mirrorExtraBaklavaNatural',
@@ -127,6 +115,17 @@ export function computeMirrorCostExtraPrices(components: MirrorPricingComponents
       price4mm: coloredBaklava,
       price6mm: coloredBaklava,
     },
+    {id: 'glass_transparent', labelKey: 'mirrorExtraGlassTransparent', price6mm: area * 11},
+    {id: 'glass_black', labelKey: 'mirrorExtraGlassBlack', price6mm: area * 13},
+    {id: 'glass_bronze', labelKey: 'mirrorExtraGlassBronze', price6mm: area * 13},
+  ];
+}
+
+export function computeMirrorCostExtraPrices(components: MirrorPricingComponents): MirrorExtraPrice[] {
+  const framePrice = components.perimeter * 5.5;
+  return [
+    {id: 'iron_frame', labelKey: 'mirrorExtraIronFrame', price4mm: framePrice, price6mm: framePrice},
+    {id: 'wood_frame', labelKey: 'mirrorExtraWoodFrame', price4mm: framePrice, price6mm: framePrice},
   ];
 }
 

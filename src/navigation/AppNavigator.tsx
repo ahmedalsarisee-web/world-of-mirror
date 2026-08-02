@@ -1,5 +1,5 @@
 import React, {useMemo} from 'react';
-import {ActivityIndicator, I18nManager, StyleSheet, View} from 'react-native';
+import {I18nManager, View} from 'react-native';
 import {NavigationContainer} from '@react-navigation/native';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {navigationRef} from '@app/RootNavigation';
@@ -16,7 +16,8 @@ import type {RootStackParamList} from '@app/types/navigation';
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 const AppNavigator: React.FC = () => {
-  const {user, isInitialized} = useAuthStore();
+  const user = useAuthStore((s) => s.user);
+  const isInitialized = useAuthStore((s) => s.isInitialized);
   const {language} = useLanguage();
   const navigationDirection = I18nManager.isRTL ? 'rtl' : 'ltr';
   const {theme, themeType} = useTheme();
@@ -28,11 +29,7 @@ const AppNavigator: React.FC = () => {
   useSyncAuthUserProfile();
 
   if (!isInitialized) {
-    return (
-      <View style={[styles.loading, {backgroundColor: theme.backgrounds.background}]}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-      </View>
-    );
+    return <View style={{flex: 1, backgroundColor: theme.colors.background}} />;
   }
 
   return (
@@ -48,9 +45,5 @@ const AppNavigator: React.FC = () => {
     </NavigationContainer>
   );
 };
-
-const styles = StyleSheet.create({
-  loading: {flex: 1, justifyContent: 'center', alignItems: 'center'},
-});
 
 export default AppNavigator;

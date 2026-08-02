@@ -79,6 +79,13 @@ export function canManageAdmins(
   return isPrimaryAdmin(actor, authEmail);
 }
 
+export function canClearSharedNotificationsLog(
+  user: AdminActor | null | undefined,
+  authEmail?: string | null,
+): boolean {
+  return isPrimaryAdmin(user, authEmail);
+}
+
 export function canDeleteUser(
   actor: AdminActor | null | undefined,
   target: AdminTarget,

@@ -2,7 +2,7 @@ import {Platform} from 'react-native';
 import Constants from 'expo-constants';
 import {isMockMode} from '@app/config/appMode';
 import {registerExpoPushToken, unregisterExpoPushToken} from '@app/services/users.service';
-import {ensureNotificationPermissions, areNativeNotificationsSupported} from '@app/services/notifications.service';
+import {ensureNotificationPermissions, areRemotePushNotificationsSupported} from '@app/services/notifications.service';
 
 type NotificationsModule = typeof import('expo-notifications');
 
@@ -11,8 +11,12 @@ function resolveExpoProjectId(): string | undefined {
   return extra?.eas?.projectId ?? Constants.easConfig?.projectId;
 }
 
+function isExpoGoAndroid(): boolean {
+  return Platform.OS === 'android' && Constants.appOwnership === 'expo';
+}
+
 async function loadNotificationsModule(): Promise<NotificationsModule | null> {
-  if (!areNativeNotificationsSupported()) {
+  if (Platform.OS === 'web' || isExpoGoAndroid()) {
     return null;
   }
 
@@ -24,7 +28,7 @@ async function loadNotificationsModule(): Promise<NotificationsModule | null> {
 }
 
 export async function registerAdminPushNotifications(userId: string): Promise<void> {
-  if (isMockMode || !areNativeNotificationsSupported()) {
+  if (isMockMode || !areRemotePushNotificationsSupported()) {
     return;
   }
 
@@ -55,7 +59,7 @@ export async function registerAdminPushNotifications(userId: string): Promise<vo
 }
 
 export async function unregisterAdminPushNotifications(userId: string): Promise<void> {
-  if (isMockMode || !areNativeNotificationsSupported()) {
+  if (isMockMode || !areRemotePushNotificationsSupported()) {
     return;
   }
 

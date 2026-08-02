@@ -19,8 +19,8 @@ export interface MirrorPricingComponents {
 export interface MirrorOrderOption {
   id: string;
   labelKey: string;
-  price4mm: number;
-  price6mm: number;
+  price4mm?: number;
+  price6mm?: number;
 }
 
 export interface MirrorExtraPrice {
@@ -59,6 +59,9 @@ export function computeMirrorComponents(lengthCm: number, widthCm: number): Mirr
 export function computeMirrorOrderOptions(components: MirrorPricingComponents): MirrorOrderOption[] {
   const {area, mirror4mm, normalLighting, groove, design, touchButton} = components;
   const upgrade = (price4mm: number) => price6mmFrom4mm(price4mm, area);
+  const naturalSilver4mm = area * 45 * 1.5;
+  const naturalSilver6mm = area * 49 * 1.5;
+  const coloredBaklava = area * 55 * 1.5;
 
   const plain = mirror4mm;
   const plainNormalLight = mirror4mm + normalLighting;
@@ -122,21 +125,6 @@ export function computeMirrorOrderOptions(components: MirrorPricingComponents): 
       price4mm: designGrooveTouch,
       price6mm: upgrade(designGrooveTouch),
     },
-  ];
-}
-
-export function computeMirrorExtraPrices(components: MirrorPricingComponents): MirrorExtraPrice[] {
-  const {area, perimeter} = components;
-  const naturalSilver4mm = area * 45 * 1.5;
-  const naturalSilver6mm = area * 49 * 1.5;
-  const coloredBaklava = area * 55 * 1.5;
-
-  return [
-    {id: 'iron_frame', labelKey: 'mirrorExtraIronFrame', price4mm: perimeter * 5.5},
-    {id: 'wood_frame', labelKey: 'mirrorExtraWoodFrame', price4mm: perimeter * 5.5},
-    {id: 'glass_transparent', labelKey: 'mirrorExtraGlassTransparent', price6mm: area * 11 * 1.8},
-    {id: 'glass_black', labelKey: 'mirrorExtraGlassBlack', price6mm: area * 13 * 1.8},
-    {id: 'glass_bronze', labelKey: 'mirrorExtraGlassBronze', price6mm: area * 13 * 1.8},
     {
       id: 'baklava_natural',
       labelKey: 'mirrorExtraBaklavaNatural',
@@ -149,6 +137,17 @@ export function computeMirrorExtraPrices(components: MirrorPricingComponents): M
       price4mm: coloredBaklava,
       price6mm: coloredBaklava,
     },
+    {id: 'glass_transparent', labelKey: 'mirrorExtraGlassTransparent', price6mm: area * 11 * 1.8},
+    {id: 'glass_black', labelKey: 'mirrorExtraGlassBlack', price6mm: area * 13 * 1.8},
+    {id: 'glass_bronze', labelKey: 'mirrorExtraGlassBronze', price6mm: area * 13 * 1.8},
+  ];
+}
+
+export function computeMirrorExtraPrices(components: MirrorPricingComponents): MirrorExtraPrice[] {
+  const framePrice = components.perimeter * 5.5;
+  return [
+    {id: 'iron_frame', labelKey: 'mirrorExtraIronFrame', price4mm: framePrice, price6mm: framePrice},
+    {id: 'wood_frame', labelKey: 'mirrorExtraWoodFrame', price4mm: framePrice, price6mm: framePrice},
   ];
 }
 
@@ -159,6 +158,10 @@ export function computeMirrorPricing(dimensions: MirrorDimensions) {
     orderOptions: computeMirrorOrderOptions(components),
     extras: computeMirrorExtraPrices(components),
   };
+}
+
+export function isGlassOption(optionId: string): boolean {
+  return optionId.startsWith('glass_');
 }
 
 export function resolveMirrorOptionPrice(

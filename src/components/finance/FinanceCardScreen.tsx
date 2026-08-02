@@ -1,4 +1,4 @@
-import React, {useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {Alert, FlatList, Pressable, StyleSheet, Text, View} from 'react-native';
 import {MaterialCommunityIcons} from '@expo/vector-icons';
 import {useForm, Controller} from 'react-hook-form';
@@ -10,6 +10,8 @@ import AppInput from '@app/components/common/AppInput';
 import BottomSheet from '@app/components/common/BottomSheet';
 import EmptyState from '@app/components/common/EmptyState';
 import AccountStatementExportButton from '@app/components/finance/AccountStatementExportButton';
+import FinanceCardCashFlowRow from '@app/components/finance/FinanceCardCashFlowRow';
+import {FinanceCardOverflowButton} from '@app/components/finance/FinanceCardOverflowMenu';
 import EditFinanceTransactionSheet from '@app/components/finance/EditFinanceTransactionSheet';
 import FinanceSearchBar from '@app/components/finance/FinanceSearchBar';
 import FinanceTransactionRow from '@app/components/finance/FinanceTransactionRow';
@@ -21,6 +23,7 @@ import {useTheme} from '@app/context/ThemeContext';
 import {deleteTransaction, updateTransaction} from '@app/services/transactions.service';
 import type {AppUser, EmployeeFinanceLedger, Transaction} from '@app/types/models';
 import {canDeleteFinanceTransaction, canEditFinanceTransaction} from '@app/utils/financePermissions';
+import {computeFinanceTotals} from '@app/utils/financeTotals';
 import {searchTransactions} from '@app/utils/financeSearch';
 import {transactionSchema, type TransactionFormValues} from '@app/utils/validation';
 import {getListCardStyle} from '@shared/theme/themeHelpers';
@@ -40,6 +43,10 @@ interface Props {
   onExport: () => Promise<void>;
   exporting?: boolean;
   loadingOverlay?: boolean;
+  topContent?: React.ReactNode;
+  onOpenCardMenu?: () => void;
+  focusTransactionId?: string;
+  focusToken?: number;
 }
 
 const FinanceCardScreen: React.FC<Props> = ({
@@ -55,6 +62,10 @@ const FinanceCardScreen: React.FC<Props> = ({
   onExport,
   exporting = false,
   loadingOverlay = false,
+  topContent,
+  onOpenCardMenu,
+  focusTransactionId,
+  focusToken,
 }) => {
   const {t} = useTranslation();
   const {theme} = useTheme();
@@ -64,6 +75,8 @@ const FinanceCardScreen: React.FC<Props> = ({
   const [modal, setModal] = useState<TxModal>(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
+  const listRef = useRef<FlatList<Transaction>>(null);
+  const focusAppliedRef = useRef(false);
   const listCard = useMemo(() => getListCardStyle(theme), [theme]);
 
   const styles = useMemo(
@@ -133,7 +146,31 @@ const FinanceCardScreen: React.FC<Props> = ({
     [searchQuery, transactions],
   );
 
+  const {cashIn, cashOut} = useMemo(() => computeFinanceTotals(transactions), [transactions]);
+
   const hasSearchQuery = searchQuery.trim().length > 0;
+
+  useEffect(() => {
+    focusAppliedRef.current = false;
+  }, [focusTransactionId, focusToken]);
+
+  useEffect(() => {
+    if (!focusTransactionId || focusAppliedRef.current) {
+      return;
+    }
+
+    const index = filteredTransactions.findIndex((transaction) => transaction.id === focusTransactionId);
+    if (index < 0) {
+      return;
+    }
+
+    focusAppliedRef.current = true;
+    const timeout = setTimeout(() => {
+      listRef.current?.scrollToIndex({index, animated: true, viewPosition: 0.25});
+    }, 180);
+
+    return () => clearTimeout(timeout);
+  }, [filteredTransactions, focusToken, focusTransactionId]);
 
   const openTxModal = (next: TxModal) => {
     reset({amount: 0, note: ''});
@@ -145,10 +182,11 @@ const FinanceCardScreen: React.FC<Props> = ({
       return;
     }
     const parsed = transactionSchema.parse(values);
+    const txType = modal;
+    reset();
+    setModal(null);
     try {
-      await onCreateTransaction(modal, parsed);
-      reset();
-      setModal(null);
+      await onCreateTransaction(txType, parsed);
     } catch {
       Alert.alert(t('error'), t('saveFailed'));
     }
@@ -170,6 +208,7 @@ const FinanceCardScreen: React.FC<Props> = ({
         editingTransaction,
         {amount: parsed.amount, note: parsed.note ?? ''},
         currentUser.id,
+        {balanceSyncViewer: currentUser},
       );
       setEditingTransaction(null);
     } catch {
@@ -190,7 +229,7 @@ const FinanceCardScreen: React.FC<Props> = ({
 
     setSavingEdit(true);
     try {
-      await deleteTransaction(editingTransaction);
+      await deleteTransaction(editingTransaction, {balanceSyncViewer: currentUser});
       setEditingTransaction(null);
     } catch {
       Alert.alert(t('error'), t('saveFailed'));
@@ -207,6 +246,7 @@ const FinanceCardScreen: React.FC<Props> = ({
   return (
     <>
       <ScreenContainer scroll={false} style={{padding: 0}} contentStyle={{flex: 1, padding: 0}}>
+        {topContent}
         <View style={[styles.balanceSection, listCard]}>
           <View style={[styles.balanceTopRow, layoutStyle]}>
             <AccountStatementExportButton
@@ -231,7 +271,9 @@ const FinanceCardScreen: React.FC<Props> = ({
             <View style={styles.balanceAmountCol}>
               <AmountText amount={balance} size="sm" currencyLabel={t('currencyLabel')} />
             </View>
+            {onOpenCardMenu ? <FinanceCardOverflowButton onPress={onOpenCardMenu} /> : null}
           </View>
+          <FinanceCardCashFlowRow cashIn={cashIn} cashOut={cashOut} />
           {canManage ? (
             <View style={styles.actions}>
               <AppButton
@@ -257,10 +299,21 @@ const FinanceCardScreen: React.FC<Props> = ({
         <Text style={[styles.txTitle, textStyle, {color: theme.typography.primary}]}>{t('transactions')}</Text>
         <FinanceSearchBar value={searchQuery} onChangeText={setSearchQuery} />
         <FlatList
+          ref={listRef}
           data={filteredTransactions}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.txList}
           keyboardShouldPersistTaps="handled"
+          initialNumToRender={12}
+          maxToRenderPerBatch={8}
+          windowSize={7}
+          removeClippedSubviews
+          onScrollToIndexFailed={(info) => {
+            listRef.current?.scrollToOffset({
+              offset: Math.max(0, info.averageItemLength * info.index),
+              animated: true,
+            });
+          }}
           ListEmptyComponent={
             <EmptyState
               icon="cash-multiple"
@@ -299,7 +352,7 @@ const FinanceCardScreen: React.FC<Props> = ({
               value={value}
               onNumberChange={onChange}
               onBlur={onBlur}
-              error={errors.amount?.message}
+              error={errors.amount?.message ? t(errors.amount.message) : undefined}
             />
           )}
         />
@@ -313,6 +366,7 @@ const FinanceCardScreen: React.FC<Props> = ({
               value={value ?? ''}
               onChangeText={onChange}
               onBlur={onBlur}
+              error={errors.note?.message ? t(errors.note.message) : undefined}
             />
           )}
         />

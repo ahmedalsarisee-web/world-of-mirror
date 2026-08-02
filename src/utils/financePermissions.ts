@@ -1,18 +1,29 @@
 import type {AppUser, Transaction, UserRole} from '@app/types/models';
 
 import {canViewAllFinanceCards, isPrimaryAdmin} from '@app/utils/adminPermissions';
-import {buildDelegatedFinanceLedgerAccessKey} from '@app/utils/financeLedgers';
-
+import {
+  canEditFinanceTransactionsUnrestricted,
+  canManageEmployeeFinance,
+  resolveEmployeePermissions,
+} from '@app/utils/employeePermissions';
+import {buildDelegatedFinanceLedgerAccessKey, isMemoFinanceLedger} from '@app/utils/financeLedgers';
 import {isWithinEmployeeTransactionEditWindow} from '@app/utils/financeTransactionWindow';
-
-
 
 type FinanceUser = Pick<
   AppUser,
-  'id' | 'role' | 'isPrimaryAdmin' | 'email' | 'delegatedFinanceLedgerAccess' | 'adminPermissions'
+  | 'id'
+  | 'role'
+  | 'isPrimaryAdmin'
+  | 'email'
+  | 'archivedAt'
+  | 'delegatedFinanceLedgerAccess'
+  | 'adminPermissions'
+  | 'permissions'
 >;
 
-
+function isArchivedFinanceAccount(target: Pick<AppUser, 'role' | 'archivedAt'>): boolean {
+  return target.role === 'employee' && Boolean(target.archivedAt);
+}
 
 type ModifiableTransaction = Pick<
 
@@ -162,6 +173,34 @@ function canAdminModifyTransaction(
 
 
 
+function canEmployeeFinanceManagerModifyTransaction(
+
+  viewer: FinanceUser,
+
+  target: FinanceUser,
+
+): boolean {
+
+  return canManageEmployeeFinance(viewer as AppUser) && target.role === 'employee';
+
+}
+
+
+
+function canPrimaryAdminManageFinanceCard(
+
+  viewer: FinanceUser | null | undefined,
+
+  target: FinanceUser,
+
+): boolean {
+
+  return Boolean(viewer && isPrimaryAdmin(viewer) && canViewFinanceAccount(viewer, target));
+
+}
+
+
+
 export function canViewFinanceAccount(
 
   viewer: FinanceUser | null | undefined,
@@ -176,14 +215,46 @@ export function canViewFinanceAccount(
 
   }
 
-  if (viewer.role === 'admin') {
-
-    return canViewAllFinanceCards(viewer) || viewer.id === target.id;
-
+  if (isArchivedFinanceAccount(target)) {
+    return false;
   }
 
-  return viewer.id === target.id;
+  if (viewer.role === 'admin') {
+    if (target.role === 'employee') {
+      return false;
+    }
+    return canViewAllFinanceCards(viewer) || viewer.id === target.id;
+  }
 
+  if (viewer.id === target.id) {
+    if (viewer.role === 'employee') {
+      return false;
+    }
+    return resolveEmployeePermissions(viewer as AppUser).finance;
+  }
+
+  return canManageEmployeeFinance(viewer as AppUser) && target.role === 'employee';
+
+}
+
+/** Firestore `users.balance` is maintained only for admins and employee-finance managers. */
+export function canPersistStoredBalance(
+  viewer: FinanceUser | null | undefined,
+  target: Pick<AppUser, 'id' | 'role' | 'archivedAt'>,
+): boolean {
+  if (!viewer || isArchivedFinanceAccount(target)) {
+    return false;
+  }
+
+  if (viewer.role === 'admin') {
+    return true;
+  }
+
+  return (
+    viewer.role === 'employee' &&
+    canManageEmployeeFinance(viewer as AppUser) &&
+    target.role === 'employee'
+  );
 }
 
 
@@ -196,7 +267,13 @@ export function canManageFinanceAccount(
 
 ): boolean {
 
-  if (!viewer || !canViewFinanceAccount(viewer, target)) {
+  if (!viewer) {
+
+    return false;
+
+  }
+
+  if (!canViewFinanceAccount(viewer, target)) {
 
     return false;
 
@@ -204,7 +281,11 @@ export function canManageFinanceAccount(
 
   if (viewer.role === 'employee') {
 
-    return viewer.id === target.id;
+    if (viewer.id === target.id) {
+      return resolveEmployeePermissions(viewer as AppUser).finance;
+    }
+
+    return canManageEmployeeFinance(viewer as AppUser) && target.role === 'employee';
 
   }
 
@@ -273,6 +354,35 @@ export function canEditFinanceTransaction(
 
   }
 
+  if (canEmployeeFinanceManagerModifyTransaction(viewer, target)) {
+
+    return true;
+
+  }
+
+  if (
+    viewer.role === 'employee' &&
+    canEditFinanceTransactionsUnrestricted(viewer as AppUser)
+  ) {
+    if (viewer.id === target.id && canManageFinanceAccount(viewer, target)) {
+      if (ledger) {
+        if (transaction.ledgerId === ledger.id) {
+          return true;
+        }
+      } else if (!transaction.ledgerId) {
+        return true;
+      }
+    }
+
+    if (
+      ledger &&
+      transaction.ledgerId === ledger.id &&
+      canViewFinanceLedger(viewer, target, ledger)
+    ) {
+      return true;
+    }
+  }
+
   return canEmployeeModifyOwnTransaction(viewer, target, transaction, now);
 
 }
@@ -307,7 +417,19 @@ export function canClearAdvanceScopeTransactions(
 
 ): boolean {
 
-  return viewer?.role === 'admin' && canManageFinanceAccount(viewer, target);
+  if (!viewer || !canManageFinanceAccount(viewer, target)) {
+    return false;
+  }
+
+  if (canPrimaryAdminManageFinanceCard(viewer, target)) {
+    return true;
+  }
+
+  if (target.role !== 'employee') {
+    return false;
+  }
+
+  return viewer.role === 'admin' || canManageEmployeeFinance(viewer as AppUser);
 
 }
 
@@ -321,7 +443,95 @@ export function canClearCashScopeTransactions(
 
 ): boolean {
 
-  return viewer?.role === 'admin' && canManageFinanceAccount(viewer, target);
+  if (!viewer || !canManageFinanceAccount(viewer, target)) {
+    return false;
+  }
+
+  if (canPrimaryAdminManageFinanceCard(viewer, target)) {
+    return true;
+  }
+
+  if (target.role !== 'employee') {
+    return false;
+  }
+
+  return viewer.role === 'admin' || canManageEmployeeFinance(viewer as AppUser);
+
+}
+
+
+
+export function canEmployeeManageOwnMemoLedgers(
+
+  viewer: FinanceUser | null | undefined,
+
+  target: FinanceUser,
+
+): boolean {
+
+  return (
+
+    viewer?.role === 'employee' &&
+
+    viewer.id === target.id &&
+
+    resolveEmployeePermissions(viewer as AppUser).finance
+
+  );
+
+}
+
+
+
+function canAdminManageEmployeeMemoLedgers(
+
+  viewer: FinanceUser | null | undefined,
+
+  accountOwner: FinanceUser,
+
+): boolean {
+
+  return (
+
+    viewer?.role === 'admin' &&
+
+    accountOwner.role === 'employee' &&
+
+    canManageFinanceAccount(viewer, accountOwner)
+
+  );
+
+}
+
+
+
+export function canAddFinanceLedger(
+
+  viewer: FinanceUser | null | undefined,
+
+  target: FinanceUser,
+
+): boolean {
+
+  if (!viewer || !canManageFinanceAccount(viewer, target)) {
+
+    return false;
+
+  }
+
+  if (canPrimaryAdminManageFinanceCard(viewer, target)) {
+    return true;
+  }
+
+  if (canEmployeeManageOwnMemoLedgers(viewer, target)) {
+    return true;
+  }
+
+  if (viewer.role === 'employee') {
+    return canManageEmployeeFinance(viewer as AppUser) && target.role === 'employee';
+  }
+
+  return target.role === 'employee' || target.id === viewer.id;
 
 }
 
@@ -335,13 +545,54 @@ export function canManageFinanceLedgers(
 
 ): boolean {
 
-  if (!viewer || viewer.role !== 'admin' || !canManageFinanceAccount(viewer, target)) {
+  if (!viewer || !canManageFinanceAccount(viewer, target)) {
 
     return false;
 
   }
 
+  if (canPrimaryAdminManageFinanceCard(viewer, target)) {
+    return true;
+  }
+
+  if (viewer.role === 'employee') {
+    return canManageEmployeeFinance(viewer as AppUser) && target.role === 'employee';
+  }
+
   return target.role === 'employee' || target.id === viewer.id;
+
+}
+
+
+
+export function canToggleFinanceLedgerMemoMode(
+  viewer: FinanceUser | null | undefined,
+  accountOwner: FinanceUser,
+): boolean {
+  return viewer?.role === 'admin' && canManageFinanceAccount(viewer, accountOwner);
+}
+
+export function canManageFinanceLedgerEntry(
+
+  viewer: FinanceUser | null | undefined,
+
+  accountOwner: FinanceUser,
+
+  ledger: Pick<import('@app/types/models').EmployeeFinanceLedger, 'memoOnly' | 'visibleToUserIds'>,
+
+): boolean {
+
+  if (isMemoFinanceLedger(ledger)) {
+    if (canEmployeeManageOwnMemoLedgers(viewer, accountOwner)) {
+      return true;
+    }
+    if (canAdminManageEmployeeMemoLedgers(viewer, accountOwner)) {
+      return true;
+    }
+    return canPrimaryAdminManageFinanceCard(viewer, accountOwner);
+  }
+
+  return canManageFinanceLedgers(viewer, accountOwner);
 
 }
 
@@ -365,7 +616,7 @@ export function canViewFinanceLedger(
 
   accountOwner: FinanceUser,
 
-  ledger: Pick<import('@app/types/models').EmployeeFinanceLedger, 'id' | 'visibleToUserIds'>,
+  ledger: Pick<import('@app/types/models').EmployeeFinanceLedger, 'id' | 'visibleToUserIds' | 'memoOnly'>,
 
 ): boolean {
 
@@ -373,6 +624,27 @@ export function canViewFinanceLedger(
 
     return false;
 
+  }
+
+  if (isArchivedFinanceAccount(accountOwner)) {
+    return false;
+  }
+
+  if (isMemoFinanceLedger(ledger)) {
+    if (viewer.id === accountOwner.id) {
+      return true;
+    }
+    if (canAdminManageEmployeeMemoLedgers(viewer, accountOwner)) {
+      return true;
+    }
+
+    const visibleTo = ledger.visibleToUserIds ?? [];
+    if (visibleTo.includes(viewer.id)) {
+      return true;
+    }
+
+    const accessKey = buildDelegatedFinanceLedgerAccessKey(accountOwner.id, ledger.id);
+    return (viewer.delegatedFinanceLedgerAccess ?? []).includes(accessKey);
   }
 
   if (viewer.id === accountOwner.id) {
@@ -385,6 +657,14 @@ export function canViewFinanceLedger(
 
     return true;
 
+  }
+
+  if (
+    viewer.role === 'employee' &&
+    canManageEmployeeFinance(viewer as AppUser) &&
+    accountOwner.role === 'employee'
+  ) {
+    return true;
   }
 
   const visibleTo = ledger.visibleToUserIds ?? [];
@@ -441,12 +721,57 @@ export function isExplicitlySharedFinanceLedger(
 export function shouldListFinanceLedgerOnFinanceHome(
   viewer: FinanceUser | null | undefined,
   accountOwner: FinanceUser,
-  ledger: Pick<import('@app/types/models').EmployeeFinanceLedger, 'id' | 'visibleToUserIds'>,
+  ledger: Pick<import('@app/types/models').EmployeeFinanceLedger, 'id' | 'visibleToUserIds' | 'memoOnly'>,
 ): boolean {
   if (!viewer?.id || viewer.id === accountOwner.id) {
     return false;
   }
+  if (accountOwner.role === 'employee') {
+    return false;
+  }
+  if (isArchivedFinanceAccount(accountOwner)) {
+    return false;
+  }
   return canViewFinanceLedger(viewer, accountOwner, ledger);
+}
+
+export function shouldListSharedFinanceLedgerForViewer(
+  viewer: FinanceUser | null | undefined,
+  accountOwner: FinanceUser,
+  ledger: Pick<import('@app/types/models').EmployeeFinanceLedger, 'id' | 'visibleToUserIds' | 'memoOnly'>,
+  options?: {adminOwnedOnly?: boolean},
+): boolean {
+  if (!viewer?.id || viewer.id === accountOwner.id) {
+    return false;
+  }
+  if (accountOwner.role === 'employee') {
+    return false;
+  }
+  if (options?.adminOwnedOnly && accountOwner.role !== 'admin') {
+    return false;
+  }
+  if (isArchivedFinanceAccount(accountOwner)) {
+    return false;
+  }
+
+  return (
+    shouldListFinanceLedgerOnFinanceHome(viewer, accountOwner, ledger) ||
+    (viewer.delegatedFinanceLedgerAccess ?? []).includes(
+      buildDelegatedFinanceLedgerAccessKey(accountOwner.id, ledger.id),
+    )
+  );
+}
+
+/** Employees viewing an admin-owned shared ledger must query by ledgerId (Firestore rules). */
+export function shouldUseLedgerScopedFinanceTransactions(
+  viewer: FinanceUser | null | undefined,
+  accountOwner: Pick<AppUser, 'id' | 'role'> | null | undefined,
+): boolean {
+  return Boolean(
+    viewer?.role === 'employee' &&
+      accountOwner?.role === 'admin' &&
+      viewer.id !== accountOwner.id,
+  );
 }
 
 export function canManageFinanceLedgerTransactions(
@@ -455,7 +780,7 @@ export function canManageFinanceLedgerTransactions(
 
   accountOwner: FinanceUser,
 
-  ledger: Pick<import('@app/types/models').EmployeeFinanceLedger, 'visibleToUserIds'>,
+  ledger: Pick<import('@app/types/models').EmployeeFinanceLedger, 'visibleToUserIds' | 'memoOnly'>,
 
 ): boolean {
 
@@ -475,6 +800,14 @@ export function canManageFinanceLedgerTransactions(
 
     return true;
 
+  }
+
+  if (
+    viewer.role === 'employee' &&
+    canManageEmployeeFinance(viewer as AppUser) &&
+    accountOwner.role === 'employee'
+  ) {
+    return true;
   }
 
   return isExplicitlySharedFinanceLedger(viewer, accountOwner, ledger);
@@ -503,6 +836,14 @@ export function hasFullFinanceLedgerTransactionControl(
 
   }
 
+  if (
+    viewer?.role === 'employee' &&
+    canManageEmployeeFinance(viewer as AppUser) &&
+    accountOwner.role === 'employee'
+  ) {
+    return true;
+  }
+
   return viewer?.role === 'admin';
 
 }
@@ -513,7 +854,7 @@ export function canClearFinanceLedgerTransactions(
 
   accountOwner: FinanceUser,
 
-  ledger: Pick<import('@app/types/models').EmployeeFinanceLedger, 'visibleToUserIds'>,
+  ledger: Pick<import('@app/types/models').EmployeeFinanceLedger, 'visibleToUserIds' | 'memoOnly'>,
 
 ): boolean {
 
@@ -523,14 +864,27 @@ export function canClearFinanceLedgerTransactions(
 
   }
 
+  if (isMemoFinanceLedger(ledger)) {
+    if (canEmployeeManageOwnMemoLedgers(viewer, accountOwner)) {
+      return true;
+    }
+    if (canAdminManageEmployeeMemoLedgers(viewer, accountOwner)) {
+      return true;
+    }
+    return canPrimaryAdminManageFinanceCard(viewer, accountOwner);
+  }
+
   if (isExplicitlySharedFinanceLedger(viewer, accountOwner, ledger)) {
 
     return true;
 
   }
 
+  if (canPrimaryAdminManageFinanceCard(viewer, accountOwner)) {
+    return true;
+  }
+
   return canManageFinanceLedgers(viewer, accountOwner);
 
 }
-
 

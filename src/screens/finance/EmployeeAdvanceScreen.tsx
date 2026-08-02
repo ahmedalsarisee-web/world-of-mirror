@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Alert, FlatList, Pressable, StyleSheet, Text, View} from 'react-native';
 import {MaterialCommunityIcons} from '@expo/vector-icons';
 import {useNavigation, useRoute} from '@react-navigation/native';
@@ -13,6 +13,7 @@ import AppInput from '@app/components/common/AppInput';
 import BottomSheet from '@app/components/common/BottomSheet';
 import EmptyState from '@app/components/common/EmptyState';
 import AccountStatementExportButton from '@app/components/finance/AccountStatementExportButton';
+import FinanceCardCashFlowRow from '@app/components/finance/FinanceCardCashFlowRow';
 import AddFinanceLedgerSheet from '@app/components/finance/AddFinanceLedgerSheet';
 import {
   FinanceCardOptionsSheet,
@@ -26,6 +27,7 @@ import ScreenContainer from '@app/components/common/ScreenContainer';
 import {useDirection} from '@app/hooks/useDirection';
 import {useFinanceCardHeaderMenu} from '@app/hooks/useFinanceCardHeaderMenu';
 import {useFinanceTransactionNow} from '@app/hooks/useFinanceTransactionNow';
+import {useOptimisticFinanceTransactions} from '@app/hooks/useOptimisticFinanceTransactions';
 import {useTheme} from '@app/context/ThemeContext';
 import {createTransaction, deleteAdvanceScopeTransactionsForUser, deleteTransaction, subscribeToUserTransactions, updateTransaction} from '@app/services/transactions.service';
 import {setUserBalance, subscribeToUser, updateFinanceCardLabel, clearFinanceCardLabel} from '@app/services/users.service';
@@ -34,10 +36,12 @@ import type {AppUser, Transaction} from '@app/types/models';
 import type {FinanceStackParamList} from '@app/types/navigation';
 import {
   computeAdvanceAccountBalance,
+  computeFinanceTotals,
   filterAdvanceScopeTransactions,
+  normalizeTransactionAmount,
   resolveAccountBalance,
 } from '@app/utils/financeTotals';
-import {canClearLedgerTransactions, canDeleteFinanceTransaction, canEditFinanceTransaction, canManageFinanceAccount, canManageFinanceLedgers, canViewFinanceAccount} from '@app/utils/financePermissions';
+import {canClearLedgerTransactions, canDeleteFinanceTransaction, canEditFinanceTransaction, canManageFinanceAccount, canManageFinanceLedgers, canPersistStoredBalance, canViewFinanceAccount} from '@app/utils/financePermissions';
 import {searchTransactions} from '@app/utils/financeSearch';
 import {transactionSchema, type TransactionFormValues} from '@app/utils/validation';
 import {getListCardStyle} from '@shared/theme/themeHelpers';
@@ -56,11 +60,14 @@ const EmployeeAdvanceScreen: React.FC = () => {
   const {textStyle, row, alignEnd, layoutStyle, isRTL} = useDirection();
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
-  const {userId, userName} = route.params;
+  const {userId, userName, focusTransactionId, focusToken} = route.params;
   const currentUser = useAuthStore((s) => s.user);
   const transactionNow = useFinanceTransactionNow();
+  const listRef = useRef<FlatList<Transaction>>(null);
+  const focusAppliedRef = useRef(false);
   const [targetUser, setTargetUser] = useState<AppUser | null>(null);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [remoteTransactions, setRemoteTransactions] = useState<Transaction[]>([]);
+  const {transactions, appendPending, removePending} = useOptimisticFinanceTransactions(remoteTransactions);
   const [searchQuery, setSearchQuery] = useState('');
   const [modal, setModal] = useState<TxModal>(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
@@ -147,7 +154,7 @@ const EmployeeAdvanceScreen: React.FC = () => {
 
   useEffect(() => {
     if (!canAccess) return;
-    const unsubTx = subscribeToUserTransactions(userId, setTransactions);
+    const unsubTx = subscribeToUserTransactions(userId, setRemoteTransactions);
     return unsubTx;
   }, [userId, canAccess]);
 
@@ -167,7 +174,11 @@ const EmployeeAdvanceScreen: React.FC = () => {
   );
 
   useEffect(() => {
-    if (!targetUser || transactions.length === 0) {
+    if (!targetUser || !currentUser || transactions.length === 0) {
+      return;
+    }
+
+    if (!canPersistStoredBalance(currentUser, targetUser)) {
       return;
     }
 
@@ -176,12 +187,21 @@ const EmployeeAdvanceScreen: React.FC = () => {
       return;
     }
 
-    void setUserBalance(userId, accountBalance);
-  }, [accountBalance, targetUser, transactions.length, userId]);
+    const timeout = setTimeout(() => {
+      void setUserBalance(userId, accountBalance, currentUser);
+    }, 2500);
+
+    return () => clearTimeout(timeout);
+  }, [accountBalance, currentUser, targetUser, transactions.length, userId]);
 
   const advanceTransactions = useMemo(
     () => filterAdvanceScopeTransactions(transactions),
     [transactions],
+  );
+
+  const {cashIn, cashOut} = useMemo(
+    () => computeFinanceTotals(advanceTransactions),
+    [advanceTransactions],
   );
 
   const filteredTransactions = useMemo(
@@ -190,6 +210,28 @@ const EmployeeAdvanceScreen: React.FC = () => {
   );
 
   const hasSearchQuery = searchQuery.trim().length > 0;
+
+  useEffect(() => {
+    focusAppliedRef.current = false;
+  }, [focusTransactionId, focusToken]);
+
+  useEffect(() => {
+    if (!focusTransactionId || focusAppliedRef.current) {
+      return;
+    }
+
+    const index = filteredTransactions.findIndex((transaction) => transaction.id === focusTransactionId);
+    if (index < 0) {
+      return;
+    }
+
+    focusAppliedRef.current = true;
+    const timeout = setTimeout(() => {
+      listRef.current?.scrollToIndex({index, animated: true, viewPosition: 0.25});
+    }, 180);
+
+    return () => clearTimeout(timeout);
+  }, [filteredTransactions, focusToken, focusTransactionId]);
 
   const handleClearAllAdvanceTransactions = useCallback(() => {
     if (!targetUser || !canClearAll || advanceTransactions.length === 0) {
@@ -204,7 +246,7 @@ const EmployeeAdvanceScreen: React.FC = () => {
         onPress: async () => {
           setClearing(true);
           try {
-            await deleteAdvanceScopeTransactionsForUser(userId, transactions);
+            await deleteAdvanceScopeTransactionsForUser(userId, transactions, {balanceSyncViewer: currentUser});
           } catch {
             Alert.alert(t('error'), t('saveFailed'));
           } finally {
@@ -323,15 +365,30 @@ const EmployeeAdvanceScreen: React.FC = () => {
     if (!modal || !canManage || !currentUser) return;
     const parsed = transactionSchema.parse(values);
     const txType = modal === 'received' ? 'advance' : 'advance_repayment';
+    const pendingId = `pending-${Date.now()}`;
+    const signedAmount = normalizeTransactionAmount(txType, parsed.amount);
+
+    appendPending({
+      id: pendingId,
+      userId,
+      type: txType,
+      amount: signedAmount,
+      note: parsed.note ?? '',
+      createdAt: new Date().toISOString(),
+      createdByUserId: currentUser.id,
+      createdByRole: currentUser.role,
+    });
+    reset();
+    setModal(null);
 
     try {
       await createTransaction(userId, txType, parsed.amount, parsed.note ?? '', {
         createdByUserId: currentUser.id,
         createdByRole: currentUser.role,
+        balanceSyncViewer: currentUser,
       });
-      reset();
-      setModal(null);
     } catch {
+      removePending(pendingId);
       Alert.alert(t('error'), t('saveFailed'));
     }
   };
@@ -350,6 +407,7 @@ const EmployeeAdvanceScreen: React.FC = () => {
         editingTransaction,
         {amount: parsed.amount, note: parsed.note ?? ''},
         currentUser.id,
+        {balanceSyncViewer: currentUser},
       );
       setEditingTransaction(null);
     } catch {
@@ -368,7 +426,7 @@ const EmployeeAdvanceScreen: React.FC = () => {
 
     setSavingEdit(true);
     try {
-      await deleteTransaction(editingTransaction);
+      await deleteTransaction(editingTransaction, {balanceSyncViewer: currentUser});
       setEditingTransaction(null);
     } catch {
       Alert.alert(t('error'), t('saveFailed'));
@@ -424,6 +482,7 @@ const EmployeeAdvanceScreen: React.FC = () => {
               <AmountText amount={balance} size="sm" tone="negative" currencyLabel={t('currencyLabel')} />
             </View>
           </View>
+          <FinanceCardCashFlowRow cashIn={cashIn} cashOut={cashOut} />
           {canManage ? (
             <View style={styles.actions}>
               <AppButton
@@ -449,10 +508,21 @@ const EmployeeAdvanceScreen: React.FC = () => {
         <Text style={[styles.txTitle, textStyle, {color: theme.typography.primary}]}>{t('transactions')}</Text>
         <FinanceSearchBar value={searchQuery} onChangeText={setSearchQuery} />
         <FlatList
+          ref={listRef}
           data={filteredTransactions}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.txList}
           keyboardShouldPersistTaps="handled"
+          initialNumToRender={12}
+          maxToRenderPerBatch={8}
+          windowSize={7}
+          removeClippedSubviews
+          onScrollToIndexFailed={(info) => {
+            listRef.current?.scrollToOffset({
+              offset: Math.max(0, info.averageItemLength * info.index),
+              animated: true,
+            });
+          }}
           ListEmptyComponent={
             <EmptyState
               icon="cash-multiple"
@@ -493,7 +563,7 @@ const EmployeeAdvanceScreen: React.FC = () => {
               value={value}
               onNumberChange={onChange}
               onBlur={onBlur}
-              error={errors.amount?.message}
+              error={errors.amount?.message ? t(errors.amount.message) : undefined}
             />
           )}
         />
@@ -507,6 +577,7 @@ const EmployeeAdvanceScreen: React.FC = () => {
               value={value ?? ''}
               onChangeText={onChange}
               onBlur={onBlur}
+              error={errors.note?.message ? t(errors.note.message) : undefined}
             />
           )}
         />

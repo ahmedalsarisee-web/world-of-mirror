@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.enforceAttendanceGpsStaleHeartbeat = exports.notifyOnConfirmedOrderCreated = exports.notifyOnAttendanceCreated = exports.notifyOnTransactionCreated = exports.deleteAuthUser = void 0;
+exports.enforceAttendanceGpsStaleHeartbeat = exports.notifyOnConfirmedOrderUpdated = exports.notifyOnConfirmedOrderCreated = exports.notifyOnAttendanceCreated = exports.notifyOnTransactionDeleted = exports.notifyOnTransactionUpdated = exports.notifyOnTransactionCreated = exports.backfillMissingProfileEmails = exports.deleteAuthUser = void 0;
 const app_1 = require("firebase-admin/app");
 const auth_1 = require("firebase-admin/auth");
 const firestore_1 = require("firebase-admin/firestore");
@@ -56,10 +56,49 @@ exports.deleteAuthUser = (0, https_1.onCall)(async (request) => {
     }
     return { success: true };
 });
+async function assertCallerIsAdmin(callerUid) {
+    const callerSnap = await db.doc(`users/${callerUid}`).get();
+    if (!callerSnap.exists || callerSnap.data()?.role !== 'admin') {
+        throw new https_1.HttpsError('permission-denied', 'Admin only.');
+    }
+}
+exports.backfillMissingProfileEmails = (0, https_1.onCall)(async (request) => {
+    if (!request.auth) {
+        throw new https_1.HttpsError('unauthenticated', 'Authentication required.');
+    }
+    await assertCallerIsAdmin(request.auth.uid);
+    const snap = await db.collection('users').get();
+    let updated = 0;
+    for (const userDoc of snap.docs) {
+        const data = userDoc.data();
+        if (data.archivedAt) {
+            continue;
+        }
+        if (typeof data.email === 'string' && data.email.trim()) {
+            continue;
+        }
+        try {
+            const authUser = await auth.getUser(userDoc.id);
+            const email = authUser.email?.trim().toLowerCase();
+            if (!email) {
+                continue;
+            }
+            await userDoc.ref.update({ email });
+            updated += 1;
+        }
+        catch {
+            // Skip profiles without a matching Auth account.
+        }
+    }
+    return { updated };
+});
 var notifications_1 = require("./notifications");
 Object.defineProperty(exports, "notifyOnTransactionCreated", { enumerable: true, get: function () { return notifications_1.notifyOnTransactionCreated; } });
+Object.defineProperty(exports, "notifyOnTransactionUpdated", { enumerable: true, get: function () { return notifications_1.notifyOnTransactionUpdated; } });
+Object.defineProperty(exports, "notifyOnTransactionDeleted", { enumerable: true, get: function () { return notifications_1.notifyOnTransactionDeleted; } });
 Object.defineProperty(exports, "notifyOnAttendanceCreated", { enumerable: true, get: function () { return notifications_1.notifyOnAttendanceCreated; } });
 Object.defineProperty(exports, "notifyOnConfirmedOrderCreated", { enumerable: true, get: function () { return notifications_1.notifyOnConfirmedOrderCreated; } });
+Object.defineProperty(exports, "notifyOnConfirmedOrderUpdated", { enumerable: true, get: function () { return notifications_1.notifyOnConfirmedOrderUpdated; } });
 var attendanceGps_1 = require("./attendanceGps");
 Object.defineProperty(exports, "enforceAttendanceGpsStaleHeartbeat", { enumerable: true, get: function () { return attendanceGps_1.enforceAttendanceGpsStaleHeartbeat; } });
 //# sourceMappingURL=index.js.map

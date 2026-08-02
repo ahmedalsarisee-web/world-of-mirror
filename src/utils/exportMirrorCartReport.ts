@@ -1,5 +1,3 @@
-import {Asset} from 'expo-asset';
-import {manipulateAsync, SaveFormat} from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -10,11 +8,26 @@ import {
   resolveConfirmedOrderDiscount,
   resolveConfirmedOrderSubtotal,
 } from '@app/types/mirrorPricingConfirmedOrder';
-import type {MirrorPricingCartItem} from '@app/types/mirrorPricingCart';
-import {formatCurrency, formatDateTime} from '@app/utils/format';
-import {getMirrorPricingCartCount, getMirrorPricingCartSubtotal} from '@app/stores/mirrorPricingCartStore';
+import type {MirrorPricingCartItem, MirrorPricingCustomAddition} from '@app/types/mirrorPricingCart';
+import {
+  getCustomAdditionLineTotal,
+  getCustomAdditionQuantity,
+  normalizeMirrorPricingCartItem,
+  normalizeMirrorPricingCustomAddition,
+} from '@app/types/mirrorPricingCart';
+import {formatCurrency, formatDateTime, roundMoney} from '@app/utils/format';
+import {formatOrderConfirmedByLabel} from '@app/utils/confirmedOrderConfirmedBy';
+import {formatMirrorOrderInvoiceLabel} from '@app/utils/mirrorOrderInvoiceNumber';
+import {getMirrorPricingCartCount, getMirrorPricingCartSubtotal} from '@app/types/mirrorPricingCart';
+import type {InvoiceExportExtraLine} from '@app/types/invoiceExportExtraLine';
+import {resolveInvoiceExtraLineTotal} from '@app/types/invoiceExportExtraLine';
+import {
+  buildExportReportCircularLogoHtml,
+  getExportReportCircularLogoCss,
+  loadExportReportLogoDataUri,
+} from '@app/utils/exportReportLogo';
 
-const LOGO = require('../../assets/android-icon-foreground.png');
+const INVOICE_CONTACT_PHONES = ['0798454101', '0799036387'] as const;
 
 const BRAND = {
   primary: '#6C4DFF',
@@ -27,14 +40,22 @@ const BRAND = {
 };
 
 export interface MirrorCartExportData {
+  invoiceNumber?: number;
   customerName: string;
   customerPhone: string;
   customerLocation: string;
+  customerNotes?: string;
+  customerPhotosLink?: string;
+  confirmedByUserName?: string;
+  confirmedByUserRole?: 'admin' | 'employee';
   collectedAmount: number;
   items: MirrorPricingCartItem[];
+  customAdditions?: MirrorPricingCustomAddition[];
   subtotal?: number;
   discountAmount?: number;
   total?: number;
+  extraInvoiceLines?: InvoiceExportExtraLine[];
+  invoiceNote?: string;
 }
 
 interface ExportOptions {
@@ -43,6 +64,8 @@ interface ExportOptions {
   documentTitle?: string;
   generatedAt?: string;
   shareDialogTitle?: string;
+  extraInvoiceLines?: InvoiceExportExtraLine[];
+  invoiceNote?: string;
 }
 
 function escapeHtml(value: string): string {
@@ -57,42 +80,8 @@ function amountCell(amount: number, currencyLabel: string): string {
   return `<span class="amount">${escapeHtml(formatCurrency(amount, currencyLabel))}</span>`;
 }
 
-function infoRow(label: string, value: string): string {
-  if (!value.trim()) {
-    return '';
-  }
-  return `
-    <tr>
-      <td class="info-label">${escapeHtml(label)}</td>
-      <td class="info-value">${escapeHtml(value)}</td>
-    </tr>
-  `;
-}
-
 async function loadLogoDataUri(): Promise<string> {
-  try {
-    const asset = Asset.fromModule(LOGO);
-    await asset.downloadAsync();
-    const uri = asset.localUri ?? asset.uri;
-    if (!uri) {
-      return '';
-    }
-
-    const resized = await manipulateAsync(
-      uri,
-      [{resize: {width: 96}}],
-      {compress: 0.85, format: SaveFormat.PNG, base64: true},
-    );
-
-    if (!resized.base64) {
-      return '';
-    }
-
-    return `data:image/png;base64,${resized.base64}`;
-  } catch (error) {
-    console.warn('[exportMirrorCartReport] logo load failed', error);
-    return '';
-  }
+  return loadExportReportLogoDataUri();
 }
 
 function getWritableDirectory(): string {
@@ -147,16 +136,27 @@ function buildMirrorCartReportHtml(
   logoDataUri: string,
   options: ExportOptions,
 ): string {
-  const {customerName, customerPhone, customerLocation, collectedAmount, items} = data;
+  const {
+    customerName,
+    customerPhone,
+    customerLocation,
+    customerNotes,
+    confirmedByUserName,
+    confirmedByUserRole,
+    collectedAmount,
+    items: rawItems,
+    customAdditions: rawCustomAdditions = [],
+  } = data;
+  const items = normalizeExportItems(rawItems);
+  const customAdditions = normalizeExportCustomAdditions(rawCustomAdditions);
   const currencyLabel = t('currencyLabel');
-  const subtotal = data.subtotal ?? getMirrorPricingCartSubtotal(items);
+  const subtotal = data.subtotal ?? getMirrorPricingCartSubtotal(items, customAdditions);
   const total = data.total ?? subtotal;
   const discountAmount = data.discountAmount ?? Math.max(0, subtotal - total);
   const count = getMirrorPricingCartCount(items);
-  const remaining = Math.max(0, total - collectedAmount);
   const dir = options.isRtl ? 'rtl' : 'ltr';
   const align = options.isRtl ? 'right' : 'left';
-  const logoPadding = options.isRtl ? 'padding-left:16px;' : 'padding-right:16px;';
+  const totalsAlign = options.isRtl ? 'left' : 'right';
   const appName = escapeHtml(options.appName ?? t('appName'));
   const documentTitle = escapeHtml(options.documentTitle ?? t('mirrorCartPdfTitle'));
   const exportDateIso = options.generatedAt ?? new Date().toISOString();
@@ -164,19 +164,81 @@ function buildMirrorCartReportHtml(
   const isInvoice = (options.documentTitle ?? t('mirrorCartPdfTitle')) === t('mirrorOrderInvoiceTitle');
   const invoiceDateLabel = isInvoice ? t('mirrorCartPdfInvoiceDate') : t('mirrorCartPdfGeneratedAt');
   const sortedItems = [...items].reverse();
+  const sortedCustomAdditions = [...customAdditions].reverse();
+  const extraInvoiceLines = (data.extraInvoiceLines ?? []).filter(
+    (entry) => entry.specification.trim().length > 0 && entry.unitPrice > 0 && entry.quantity > 0,
+  );
+  const extraInvoiceTotal = roundMoney(
+    extraInvoiceLines.reduce((sum, entry) => sum + resolveInvoiceExtraLineTotal(entry), 0),
+  );
+  const useManualInvoiceItems = extraInvoiceLines.length > 0;
+  const displayTotal = useManualInvoiceItems ? extraInvoiceTotal : roundMoney(total);
+  const displayRemaining = Math.max(0, displayTotal - collectedAmount);
+  const lineCount = useManualInvoiceItems
+    ? extraInvoiceLines.length
+    : count + sortedCustomAdditions.length;
+  const invoiceNote = data.invoiceNote?.trim() ?? '';
 
-  const documentInfoRows = infoRow(invoiceDateLabel, exportDate);
+  const invoiceLabel = formatMirrorOrderInvoiceLabel(data.invoiceNumber);
+  const confirmedByLabel = formatOrderConfirmedByLabel(
+    {confirmedByUserName, confirmedByUserRole},
+    t,
+  );
 
-  const customerRows = [
-    infoRow(t('customerName'), customerName),
-    infoRow(t('mirrorCartCustomerPhone'), customerPhone),
-    infoRow(t('mirrorCartLocation'), customerLocation),
-    collectedAmount > 0
-      ? infoRow(t('mirrorCartCollectedAmount'), formatCurrency(collectedAmount, currencyLabel))
-      : '',
-  ]
-    .filter(Boolean)
-    .join('');
+  const customerFields = [
+    {label: t('customerName'), value: customerName},
+    {label: t('mirrorCartCustomerPhone'), value: customerPhone},
+    {label: t('mirrorCartLocation'), value: customerLocation},
+    {label: t('mirrorCartCustomerNotes'), value: customerNotes ?? ''},
+  ].filter((field) => field.value.trim());
+
+  const invoiceFields = (
+    isInvoice
+      ? [
+          confirmedByLabel
+            ? {label: t('mirrorOrdersConfirmedByLabel'), value: confirmedByLabel}
+            : null,
+        ]
+      : [
+          invoiceLabel ? {label: t('mirrorOrderInvoiceNumber'), value: invoiceLabel} : null,
+          {label: invoiceDateLabel, value: exportDate},
+          confirmedByLabel
+            ? {label: t('mirrorOrdersConfirmedByLabel'), value: confirmedByLabel}
+            : null,
+        ]
+  ).filter((field): field is {label: string; value: string} => field !== null && Boolean(field.value.trim()));
+
+  const customerCardHtml = customerFields.length
+    ? `
+      <div class="meta-card">
+        <div class="meta-card-title">${escapeHtml(t('mirrorInvoiceBillTo'))}</div>
+        ${customerFields
+          .map(
+            (field) => `
+          <div class="meta-row">
+            <span class="meta-label">${escapeHtml(field.label)}</span>
+            <span class="meta-value">${escapeHtml(field.value)}</span>
+          </div>`,
+          )
+          .join('')}
+      </div>`
+    : '';
+
+  const invoiceCardHtml = invoiceFields.length
+    ? `
+    <div class="meta-card meta-card-accent">
+      <div class="meta-card-title">${escapeHtml(t('mirrorInvoiceDetails'))}</div>
+      ${invoiceFields
+        .map(
+          (field) => `
+        <div class="meta-row">
+          <span class="meta-label">${escapeHtml(field.label)}</span>
+          <span class="meta-value">${escapeHtml(field.value)}</span>
+        </div>`,
+        )
+        .join('')}
+    </div>`
+    : '';
 
   const itemRows = sortedItems
     .map((item, index) => {
@@ -184,53 +246,127 @@ function buildMirrorCartReportHtml(
       const thickness =
         item.thickness === '4mm' ? t('mirrorCartPdfThickness4mm') : t('mirrorCartPdfThickness6mm');
       const noteHtml = item.note
-        ? `<br/><span class="muted">${escapeHtml(item.note)}</span>`
+        ? `<div class="item-note">${escapeHtml(item.note)}</div>`
         : '';
-      const rowClass = index % 2 === 0 ? 'row-even' : 'row-odd';
 
       return `
-        <tr class="${rowClass}">
-          <td class="center">${index + 1}</td>
-          <td>${escapeHtml(t(item.labelKey))}${noteHtml}</td>
-          <td class="center ltr">${item.lengthCm} × ${item.widthCm} ${escapeHtml(t('mirrorUnitCm'))}</td>
-          <td class="center">${escapeHtml(thickness)}</td>
-          <td class="center">${item.quantity}</td>
-          <td class="amount-cell">${amountCell(item.unitPrice, currencyLabel)}</td>
-          <td class="amount-cell">${amountCell(lineTotal, currencyLabel)}</td>
+        <tr>
+          <td class="center col-index">${index + 1}</td>
+          <td class="col-product">
+            <div class="product-name">${escapeHtml(resolveMirrorCartItemLabel(t, item))}</div>
+            ${noteHtml}
+          </td>
+          <td class="center col-size ltr">${item.lengthCm} × ${item.widthCm} ${escapeHtml(t('mirrorUnitCm'))}</td>
+          <td class="center col-thickness">${escapeHtml(thickness)}</td>
+          <td class="center col-qty">${item.quantity}</td>
+          <td class="amount-cell col-unit">${amountCell(item.unitPrice, currencyLabel)}</td>
+          <td class="amount-cell col-line">${amountCell(lineTotal, currencyLabel)}</td>
         </tr>
       `;
     })
     .join('');
 
-  const discountRow =
-    discountAmount > 0
-      ? `
-        <tr>
-          <td class="total-label">${escapeHtml(t('mirrorCartSubtotal'))}</td>
-          <td class="total-value">${amountCell(subtotal, currencyLabel)}</td>
-        </tr>
-        <tr>
-          <td class="total-label">${escapeHtml(t('mirrorCartDiscount'))}</td>
-          <td class="total-value discount">− ${escapeHtml(formatCurrency(discountAmount, currencyLabel))}</td>
-        </tr>
-      `
-      : '';
+  const customAdditionRows = sortedCustomAdditions
+    .map((entry, index) => {
+      const rowIndex = sortedItems.length + index;
+      const quantity = getCustomAdditionQuantity(entry);
+      const lineTotal = getCustomAdditionLineTotal(entry);
 
-  const collectedRow =
-    collectedAmount > 0
-      ? `
+      return `
         <tr>
-          <td class="total-label">${escapeHtml(t('mirrorCartCollectedAmount'))}</td>
-          <td class="total-value">${amountCell(collectedAmount, currencyLabel)}</td>
+          <td class="center col-index">${rowIndex + 1}</td>
+          <td class="col-product">
+            <div class="product-name">${escapeHtml(entry.label)}</div>
+            <div class="item-note">${escapeHtml(t('mirrorCartCustomAdditionKind'))}</div>
+          </td>
+          <td class="center col-size">—</td>
+          <td class="center col-thickness">—</td>
+          <td class="center col-qty">${quantity}</td>
+          <td class="amount-cell col-unit">${amountCell(entry.price, currencyLabel)}</td>
+          <td class="amount-cell col-line">${amountCell(lineTotal, currencyLabel)}</td>
         </tr>
-        <tr>
-          <td class="total-label">${escapeHtml(t('mirrorCartRemainingAmount'))}</td>
-          <td class="total-value highlight">${amountCell(remaining, currencyLabel)}</td>
-        </tr>
-      `
-      : '';
+      `;
+    })
+    .join('');
 
-  const logoHtml = logoDataUri ? `<img src="${logoDataUri}" alt="${appName}" class="logo" />` : '';
+  const extraInvoiceRows = extraInvoiceLines
+    .map((entry, index) => {
+      const unitPrice = roundMoney(entry.unitPrice);
+      const quantity = Math.max(1, Math.round(entry.quantity));
+      const lineTotal = resolveInvoiceExtraLineTotal(entry);
+
+      return `
+        <tr>
+          <td class="center col-index">${index + 1}</td>
+          <td class="col-product">
+            <div class="product-name">${escapeHtml(entry.specification.trim())}</div>
+          </td>
+          <td class="center col-size">—</td>
+          <td class="center col-thickness">—</td>
+          <td class="center col-qty">${quantity}</td>
+          <td class="amount-cell col-unit">${amountCell(unitPrice, currencyLabel)}</td>
+          <td class="amount-cell col-line">${amountCell(lineTotal, currencyLabel)}</td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  const invoiceItemRows = useManualInvoiceItems
+    ? extraInvoiceRows
+    : `${itemRows}${customAdditionRows}`;
+
+  const summaryRows = [
+    !useManualInvoiceItems && discountAmount > 0
+      ? `<tr>
+          <td class="summary-label">${escapeHtml(t('mirrorCartSubtotal'))}</td>
+          <td class="summary-value">${amountCell(subtotal, currencyLabel)}</td>
+        </tr>
+        <tr>
+          <td class="summary-label">${escapeHtml(t('mirrorCartDiscount'))}</td>
+          <td class="summary-value summary-discount">− ${escapeHtml(formatCurrency(discountAmount, currencyLabel))}</td>
+        </tr>`
+      : '',
+    `<tr class="summary-grand">
+      <td class="summary-label">${escapeHtml(t('mirrorCartFullPrice'))}</td>
+      <td class="summary-value summary-total">${amountCell(displayTotal, currencyLabel)}</td>
+    </tr>`,
+    useManualInvoiceItems || collectedAmount > 0
+      ? `<tr>
+          <td class="summary-label">${escapeHtml(t('mirrorCartCollectedAmount'))}</td>
+          <td class="summary-value">${amountCell(collectedAmount, currencyLabel)}</td>
+        </tr>
+        <tr>
+          <td class="summary-label">${escapeHtml(t('mirrorCartRemainingAmount'))}</td>
+          <td class="summary-value summary-remaining">${amountCell(displayRemaining, currencyLabel)}</td>
+        </tr>`
+      : '',
+  ]
+    .filter(Boolean)
+    .join('');
+
+  const invoiceNoteHtml = invoiceNote
+    ? `
+      <div class="invoice-note-wrap">
+        <div class="invoice-note-title">${escapeHtml(t('mirrorInvoiceExtraItemsNoteLabel'))}</div>
+        <div class="invoice-note-body">${escapeHtml(invoiceNote)}</div>
+      </div>`
+    : '';
+
+  const logoHtml = buildExportReportCircularLogoHtml(appName, logoDataUri, BRAND);
+  const logoCss = getExportReportCircularLogoCss(BRAND, Boolean(options.isRtl));
+  const contactPhonesHtml = INVOICE_CONTACT_PHONES.map((phone) => escapeHtml(phone)).join(
+    `<span class="phone-sep"> · </span>`,
+  );
+  const invoiceBadgeHtml = invoiceLabel
+    ? `<div class="invoice-badge">
+        <span class="invoice-badge-kicker">${documentTitle}</span>
+        <span class="invoice-badge-number ltr">${escapeHtml(invoiceLabel)}</span>
+        <span class="invoice-badge-date">${escapeHtml(exportDate)}</span>
+      </div>`
+    : `<div class="invoice-badge">
+        <span class="invoice-badge-kicker">${documentTitle}</span>
+        <span class="invoice-badge-date">${escapeHtml(exportDate)}</span>
+      </div>`;
 
   return `<!DOCTYPE html>
 <html lang="${options.isRtl ? 'ar' : 'en'}" dir="${dir}">
@@ -238,185 +374,336 @@ function buildMirrorCartReportHtml(
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
-      @page { margin: 20px; }
+      @page { margin: 16px; }
       * { box-sizing: border-box; }
       body {
         margin: 0;
-        padding: 16px;
-        font-family: Arial, Helvetica, sans-serif;
+        padding: 0;
+        font-family: "Segoe UI", Tahoma, Arial, Helvetica, sans-serif;
         color: ${BRAND.text};
         background: #fff;
         direction: ${dir};
         text-align: ${align};
+        font-size: 12px;
+        line-height: 1.5;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
       }
-      .header {
-        padding: 16px 20px;
-        border-radius: 12px;
-        background: ${BRAND.primary};
-        color: #fff;
-        margin-bottom: 20px;
+      .page { padding: 0; }
+      .header-band {
+        background: linear-gradient(135deg, rgba(108, 77, 255, 0.08), rgba(87, 56, 245, 0.03));
+        border: 1px solid rgba(108, 77, 255, 0.12);
+        border-radius: 16px;
+        padding: 18px 18px 16px;
+        margin-bottom: 18px;
+      }
+      .top-bar {
+        height: 4px;
+        background: linear-gradient(90deg, ${BRAND.primaryDark}, ${BRAND.primary}, #8B6CFF);
+        border-radius: 999px;
+        margin-bottom: 16px;
       }
       .header-table { width: 100%; border-collapse: collapse; }
       .header-table td { vertical-align: middle; }
-      .logo-cell { width: 88px; ${logoPadding} }
-      .logo {
-        width: 72px;
-        height: 72px;
-        border-radius: 12px;
-        background: #fff;
+      .brand-cell { width: 68%; }
+      .badge-cell { width: 32%; text-align: ${totalsAlign}; }
+      .brand-wrap { display: table; width: 100%; }
+      .brand-logo, .brand-info { display: table-cell; vertical-align: middle; }
+      ${logoCss}
+      .brand-name {
+        margin: 0 0 5px;
+        font-size: 26px;
+        font-weight: 800;
+        color: ${BRAND.text};
+        letter-spacing: -0.4px;
+        line-height: 1.15;
       }
-      .header-text h1 {
-        margin: 0 0 4px;
-        font-size: 22px;
-        font-weight: 700;
-      }
-      .header-text p {
-        margin: 0 0 2px;
-        font-size: 12px;
-        opacity: 0.95;
-      }
-      .section {
-        margin-bottom: 18px;
-      }
-      .section h2 {
-        margin: 0 0 10px;
-        font-size: 15px;
-        color: ${BRAND.primaryDark};
-      }
-      .info-table {
-        width: 100%;
-        border-collapse: collapse;
-        border: 1px solid ${BRAND.border};
-        border-radius: 10px;
-        overflow: hidden;
-      }
-      .info-table td {
-        padding: 10px 12px;
-        border-bottom: 1px solid ${BRAND.border};
-        font-size: 12px;
-      }
-      .info-table tr:last-child td { border-bottom: none; }
-      .info-label {
-        width: 34%;
-        background: ${BRAND.surface};
+      .brand-tagline {
+        margin: 0 0 8px;
+        font-size: 11px;
         color: ${BRAND.textSecondary};
-        font-weight: 600;
+        line-height: 1.5;
       }
-      .info-value { color: ${BRAND.text}; }
+      .brand-phones {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 700;
+        color: ${BRAND.primaryDark};
+        direction: ltr;
+        unicode-bidi: embed;
+      }
+      .phone-sep { opacity: 0.55; font-weight: 500; }
+      .invoice-badge {
+        display: inline-block;
+        min-width: 168px;
+        padding: 14px 16px;
+        border-radius: 14px;
+        background: linear-gradient(180deg, #fff 0%, ${BRAND.surface} 100%);
+        border: 1px solid rgba(108, 77, 255, 0.22);
+        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+        text-align: center;
+      }
+      .invoice-badge-kicker {
+        display: block;
+        font-size: 10px;
+        font-weight: 800;
+        color: ${BRAND.primaryDark};
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        margin-bottom: 6px;
+      }
+      .invoice-badge-number {
+        display: block;
+        font-size: 22px;
+        font-weight: 800;
+        color: ${BRAND.text};
+        margin-bottom: 4px;
+      }
+      .invoice-badge-date {
+        display: block;
+        font-size: 10px;
+        font-weight: 600;
+        color: ${BRAND.textSecondary};
+      }
+      .meta-grid {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 12px 0;
+        margin: 0 -12px 18px;
+      }
+      .meta-grid td { width: 50%; vertical-align: top; }
+      .meta-card {
+        border: 1px solid ${BRAND.border};
+        border-radius: 14px;
+        overflow: hidden;
+        background: #fff;
+        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+      }
+      .meta-card-accent {
+        border-color: rgba(108, 77, 255, 0.28);
+        background: linear-gradient(180deg, #fff 0%, rgba(248, 250, 252, 0.9) 100%);
+      }
+      .meta-card-title {
+        padding: 11px 14px;
+        background: ${BRAND.surface};
+        border-bottom: 1px solid ${BRAND.border};
+        font-size: 11px;
+        font-weight: 800;
+        color: ${BRAND.primaryDark};
+        letter-spacing: 0.3px;
+      }
+      .meta-row {
+        padding: 10px 14px;
+        border-bottom: 1px solid ${BRAND.border};
+      }
+      .meta-row:last-child { border-bottom: none; }
+      .meta-label {
+        display: block;
+        font-size: 10px;
+        font-weight: 700;
+        color: ${BRAND.textSecondary};
+        margin-bottom: 3px;
+      }
+      .meta-value {
+        display: block;
+        font-size: 12px;
+        font-weight: 700;
+        color: ${BRAND.text};
+        word-break: break-word;
+      }
+      .section-head-wrap {
+        margin: 4px 0 12px;
+        padding-bottom: 8px;
+        border-bottom: 2px solid rgba(108, 77, 255, 0.12);
+      }
+      .section-head {
+        margin: 0 0 4px;
+        font-size: 15px;
+        font-weight: 800;
+        color: ${BRAND.text};
+      }
+      .section-sub {
+        margin: 0;
+        font-size: 11px;
+        color: ${BRAND.textSecondary};
+      }
       table.items {
         width: 100%;
         border-collapse: collapse;
         border: 1px solid ${BRAND.border};
-        font-size: 11px;
+        border-radius: 14px;
+        overflow: hidden;
+        font-size: 10px;
+        table-layout: fixed;
+        margin-bottom: 18px;
+        box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
       }
-      table.items th {
-        background: ${BRAND.surface};
-        color: ${BRAND.textSecondary};
+      table.items thead th {
+        background: linear-gradient(180deg, ${BRAND.primary} 0%, ${BRAND.primaryDark} 100%);
+        color: #fff;
         font-weight: 700;
-        padding: 10px 8px;
-        border-bottom: 1px solid ${BRAND.border};
+        padding: 12px 8px;
+        border-bottom: 1px solid ${BRAND.primaryDark};
+        font-size: 10px;
+        letter-spacing: 0.2px;
       }
-      table.items td {
-        padding: 10px 8px;
+      table.items tbody td {
+        padding: 11px 8px;
         border-bottom: 1px solid ${BRAND.border};
         vertical-align: top;
       }
-      .row-even { background: #fff; }
-      .row-odd { background: ${BRAND.surface}; }
+      table.items tbody tr:nth-child(even) td { background: ${BRAND.surface}; }
+      table.items tbody tr:last-child td { border-bottom: none; }
+      .col-index { width: 5%; }
+      .col-product { width: 28%; }
+      .col-size { width: 14%; }
+      .col-thickness { width: 10%; }
+      .col-qty { width: 7%; }
+      .col-unit { width: 16%; }
+      .col-line { width: 16%; }
       .center { text-align: center; }
       .ltr { direction: ltr; unicode-bidi: embed; }
-      .amount-cell { white-space: nowrap; }
-      .amount { font-weight: 700; color: ${BRAND.primaryDark}; }
-      .muted { color: ${BRAND.textSecondary}; font-size: 10px; }
-      .totals {
-        width: 100%;
-        border-collapse: collapse;
+      .amount-cell { text-align: ${totalsAlign}; white-space: nowrap; }
+      .amount { font-weight: 800; color: ${BRAND.primaryDark}; }
+      .product-name { font-weight: 700; color: ${BRAND.text}; line-height: 1.4; }
+      .item-note { margin-top: 4px; font-size: 9px; color: ${BRAND.textSecondary}; line-height: 1.35; }
+      .invoice-note-wrap {
         margin-top: 14px;
+        padding: 12px 14px;
+        border: 1px solid rgba(108, 77, 255, 0.14);
+        border-radius: 12px;
+        background: ${BRAND.surface};
       }
-      .totals td {
-        padding: 8px 0;
-        font-size: 13px;
-      }
-      .total-label {
+      .invoice-note-title {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.3px;
+        text-transform: uppercase;
         color: ${BRAND.textSecondary};
-        font-weight: 600;
+        margin-bottom: 6px;
       }
-      .total-value {
-        text-align: ${options.isRtl ? 'left' : 'right'};
-        font-weight: 700;
-      }
-      .total-value.highlight .amount { color: ${BRAND.success}; font-size: 16px; }
-      .total-value.discount { color: ${BRAND.success}; font-weight: 700; }
-      .grand-total {
-        border-top: 2px solid ${BRAND.primary};
-        padding-top: 10px !important;
-      }
-      .footer {
-        margin-top: 24px;
-        padding-top: 12px;
-        border-top: 1px solid ${BRAND.border};
+      .invoice-note-body {
         font-size: 11px;
+        line-height: 1.5;
+        color: ${BRAND.text};
+        white-space: pre-wrap;
+      }
+      .summary-wrap { width: 100%; margin-top: 6px; }
+      .summary-table {
+        width: 320px;
+        margin-${options.isRtl ? 'right' : 'left'}: auto;
+        margin-${options.isRtl ? 'left' : 'right'}: 0;
+        border-collapse: collapse;
+        border: 1px solid rgba(108, 77, 255, 0.18);
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+      }
+      .summary-table td {
+        padding: 10px 16px;
+        font-size: 12px;
+        border-bottom: 1px solid ${BRAND.border};
+      }
+      .summary-table tr:last-child td { border-bottom: none; }
+      .summary-label {
         color: ${BRAND.textSecondary};
+        font-weight: 700;
+        width: 58%;
+      }
+      .summary-value {
+        text-align: ${totalsAlign};
+        font-weight: 800;
+        color: ${BRAND.text};
+      }
+      .summary-discount { color: ${BRAND.success}; }
+      .summary-grand td {
+        background: linear-gradient(180deg, rgba(108, 77, 255, 0.08), rgba(108, 77, 255, 0.03));
+        border-top: 2px solid ${BRAND.primary};
+      }
+      .summary-total .amount { font-size: 17px; color: ${BRAND.primaryDark}; }
+      .summary-remaining .amount { color: ${BRAND.success}; }
+      .footer {
+        margin-top: 30px;
+        padding: 16px 12px 4px;
+        border-top: 1px solid ${BRAND.border};
         text-align: center;
+        background: linear-gradient(180deg, transparent, rgba(248, 250, 252, 0.85));
+        border-radius: 12px;
+      }
+      .footer-text {
+        margin: 0 0 6px;
+        font-size: 12px;
+        font-weight: 600;
+        color: ${BRAND.textSecondary};
+      }
+      .footer-phones {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 800;
+        color: ${BRAND.primaryDark};
+        direction: ltr;
+        unicode-bidi: embed;
       }
     </style>
   </head>
   <body>
-    <div class="header">
-      <table class="header-table">
-        <tr>
-          <td class="logo-cell">${logoHtml}</td>
-          <td class="header-text">
-            <h1>${appName}</h1>
-            <p>${documentTitle}</p>
-          </td>
-        </tr>
-      </table>
-    </div>
+    <div class="page">
+      <div class="header-band">
+        <div class="top-bar"></div>
 
-    <div class="section">
-      <h2>${escapeHtml(t('mirrorCartPdfDocumentInfo'))}</h2>
-      <table class="info-table">${documentInfoRows}</table>
-    </div>
-
-    ${
-      customerRows
-        ? `
-    <div class="section">
-      <h2>${escapeHtml(t('mirrorCartCustomerInfo'))}</h2>
-      <table class="info-table">${customerRows}</table>
-    </div>`
-        : ''
-    }
-
-    <div class="section">
-      <h2>${escapeHtml(t('mirrorCartItemsSection'))} (${count})</h2>
-      <table class="items">
-        <thead>
+        <table class="header-table">
           <tr>
-            <th class="center">#</th>
-            <th>${escapeHtml(t('mirrorCartPdfColProduct'))}</th>
-            <th class="center">${escapeHtml(t('mirrorCartPdfColDimensions'))}</th>
-            <th class="center">${escapeHtml(t('mirrorCartPdfColThickness'))}</th>
-            <th class="center">${escapeHtml(t('quantity'))}</th>
-            <th>${escapeHtml(t('mirrorCartPdfColUnitPrice'))}</th>
-            <th>${escapeHtml(t('mirrorCartLineTotal'))}</th>
+            <td class="brand-cell">
+              <div class="brand-wrap">
+                <div class="brand-logo-cell">${logoHtml}</div>
+                <div class="brand-info">
+                  <h1 class="brand-name">${appName}</h1>
+                  <p class="brand-tagline">${escapeHtml(t('mirrorInvoiceTagline'))}</p>
+                  <p class="brand-phones">${contactPhonesHtml}</p>
+                </div>
+              </div>
+            </td>
+            <td class="badge-cell">${invoiceBadgeHtml}</td>
           </tr>
-        </thead>
-        <tbody>${itemRows}</tbody>
-      </table>
+        </table>
+      </div>
 
-      <table class="totals">
-        ${discountRow}
+      <table class="meta-grid">
         <tr>
-          <td class="total-label">${escapeHtml(t('mirrorCartFullPrice'))}</td>
-          <td class="total-value grand-total highlight">${amountCell(total, currencyLabel)}</td>
+          ${
+            customerCardHtml && invoiceCardHtml
+              ? `<td>${customerCardHtml}</td><td>${invoiceCardHtml}</td>`
+              : customerCardHtml
+                ? `<td colspan="2">${customerCardHtml}</td>`
+                : invoiceCardHtml
+                  ? `<td colspan="2">${invoiceCardHtml}</td>`
+                  : ''
+          }
         </tr>
-        ${collectedRow}
       </table>
-    </div>
 
-    <div class="footer">${escapeHtml(t('mirrorCartPdfFooter'))} · ${appName}</div>
+      <div class="section-head-wrap">
+        <h2 class="section-head">${escapeHtml(t('mirrorInvoiceItemsTitle'))}</h2>
+        <p class="section-sub">${escapeHtml(t('mirrorInvoiceItemsCount', {count: lineCount}))}</p>
+      </div>
+
+      <table class="items">
+        <tbody>${invoiceItemRows}</tbody>
+      </table>
+
+      ${invoiceNoteHtml}
+
+      <div class="summary-wrap">
+        <table class="summary-table">
+          <tbody>${summaryRows}</tbody>
+        </table>
+      </div>
+
+      <div class="footer">
+        <p class="footer-text">${escapeHtml(t('mirrorCartPdfFooter'))}</p>
+        <p class="footer-phones">${contactPhonesHtml}</p>
+      </div>
+    </div>
   </body>
 </html>`;
 }
@@ -426,26 +713,86 @@ function buildFileStem(customerName: string): string {
   return safeName ? `mirror-quote-${safeName}` : 'mirror-quote';
 }
 
+function resolveMirrorCartItemLabel(t: TFunction, item: Pick<MirrorPricingCartItem, 'labelKey'>): string {
+  const key = item.labelKey?.trim();
+  if (!key) {
+    return t('mirrorCartUnknownItem');
+  }
+  return t(key);
+}
+
+function normalizeExportItems(items: MirrorPricingCartItem[]): MirrorPricingCartItem[] {
+  return items
+    .map((item) => normalizeMirrorPricingCartItem(item))
+    .filter((item): item is MirrorPricingCartItem => item !== null);
+}
+
+function normalizeExportCustomAdditions(
+  customAdditions: MirrorPricingCustomAddition[] | undefined,
+): MirrorPricingCustomAddition[] {
+  if (!customAdditions?.length) {
+    return [];
+  }
+  return customAdditions
+    .map((entry) => normalizeMirrorPricingCustomAddition(entry))
+    .filter((entry): entry is MirrorPricingCustomAddition => entry !== null);
+}
+
+async function printHtmlToPdf(html: string): Promise<Print.FilePrintResult> {
+  try {
+    return await Print.printToFileAsync({
+      html,
+      width: 595,
+      height: 842,
+      base64: true,
+    });
+  } catch (error) {
+    console.error('[exportMirrorCartReport] printToFileAsync failed', error);
+    throw new Error('PDF generation failed');
+  }
+}
+
 export async function exportMirrorCartReport(
   data: MirrorCartExportData,
   t: TFunction,
   options: ExportOptions = {},
 ): Promise<void> {
-  const logoDataUri = await loadLogoDataUri();
-  const html = buildMirrorCartReportHtml(data, t, logoDataUri, {
+  const exportOptions: ExportOptions = {
     ...options,
     generatedAt: options.generatedAt ?? new Date().toISOString(),
-  });
-  const fileStem = buildFileStem(data.customerName);
+  };
+  const normalizedData: MirrorCartExportData = {
+    ...data,
+    items: normalizeExportItems(data.items),
+    customAdditions: normalizeExportCustomAdditions(data.customAdditions),
+    extraInvoiceLines: options.extraInvoiceLines ?? data.extraInvoiceLines,
+    invoiceNote: options.invoiceNote ?? data.invoiceNote,
+  };
+  const fileStem = buildFileStem(normalizedData.customerName);
 
-  const result = await Print.printToFileAsync({
-    html,
-    width: 595,
-    height: 842,
-    base64: true,
-  });
-  const shareUri = await prepareShareablePdf(result, fileStem);
-  await sharePdfFile(shareUri, options.shareDialogTitle ?? t('mirrorCartExportPdfShare'));
+  let logoDataUri = await loadLogoDataUri();
+  let html = buildMirrorCartReportHtml(normalizedData, t, logoDataUri, exportOptions);
+
+  let result: Print.FilePrintResult;
+  try {
+    result = await printHtmlToPdf(html);
+  } catch (firstError) {
+    if (!logoDataUri) {
+      throw firstError;
+    }
+    console.warn('[exportMirrorCartReport] retrying PDF without logo');
+    logoDataUri = '';
+    html = buildMirrorCartReportHtml(normalizedData, t, logoDataUri, exportOptions);
+    result = await printHtmlToPdf(html);
+  }
+
+  try {
+    const shareUri = await prepareShareablePdf(result, fileStem);
+    await sharePdfFile(shareUri, options.shareDialogTitle ?? t('mirrorCartExportPdfShare'));
+  } catch (error) {
+    console.error('[exportMirrorCartReport] share failed', error);
+    throw new Error('Could not open share dialog');
+  }
 }
 
 export async function exportMirrorConfirmedOrderReport(
@@ -455,17 +802,25 @@ export async function exportMirrorConfirmedOrderReport(
 ): Promise<void> {
   await exportMirrorCartReport(
     {
+      invoiceNumber: order.invoiceNumber,
       customerName: order.customerName,
       customerPhone: order.customerPhone,
       customerLocation: order.customerLocation,
+      customerNotes: undefined,
+      customerPhotosLink: order.customerPhotosLink,
+      confirmedByUserName: order.confirmedByUserName,
+      confirmedByUserRole: order.confirmedByUserRole,
       collectedAmount: order.collectedAmount,
       items: order.items,
+      customAdditions: order.customAdditions,
       subtotal: resolveConfirmedOrderSubtotal(order),
       discountAmount: (() => {
         const discount = resolveConfirmedOrderDiscount(order);
         return discount > 0 ? discount : undefined;
       })(),
       total: order.total,
+      extraInvoiceLines: options.extraInvoiceLines ?? order.invoiceExtraLines,
+      invoiceNote: options.invoiceNote ?? order.invoiceNote,
     },
     t,
     {

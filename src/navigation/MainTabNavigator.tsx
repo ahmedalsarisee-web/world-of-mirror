@@ -1,4 +1,4 @@
-import React, {useMemo} from 'react';
+import React, {useMemo, useState} from 'react';
 import {StyleSheet} from 'react-native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {MaterialCommunityIcons} from '@expo/vector-icons';
@@ -18,16 +18,17 @@ import {useAttendanceLocationPermission} from '@app/hooks/useAttendanceLocationP
 import {useEmployeeAttendanceLocationSetup} from '@app/hooks/useEmployeeAttendanceLocationSetup';
 import {useEmployeeCheckedInState} from '@app/hooks/useEmployeeCheckedInState';
 import {useEmployeeLocationPublisher} from '@app/hooks/useEmployeeLocationPublisher';
+import {useConfirmedOrdersTabBadge} from '@app/hooks/useOrdersHomeCardStats';
 import {useAuthStore} from '@app/stores/authStore';
-import {useMirrorPricingConfirmedOrdersStore} from '@app/stores/mirrorPricingConfirmedOrdersStore';
+import {enableOrdersBackgroundSync} from '@app/utils/ordersSyncGate';
+import {enableAdminLiveMonitoring} from '@app/utils/adminLiveMonitoringGate';
 import type {MainTabParamList} from '@app/types/navigation';
 import {canAccessEmployeeManagement} from '@app/utils/adminPermissions';
 import {
-  canAccessModule,
+  canAccessFinanceTab,
   requiresAttendanceGpsLinked,
   requiresAttendanceLocationCheck,
 } from '@app/utils/employeePermissions';
-import {tabPressResetToRoot} from '@app/navigation/tabPressResetToRoot';
 import {getEffectiveTabBarInsets, getTabBarHeight} from '@app/utils/tabBarInsets';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -37,6 +38,8 @@ const MainTabNavigator: React.FC = () => {
   const {theme} = useTheme();
   const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
+  const [pricingTabVisited, setPricingTabVisited] = useState(false);
+
   useAttendanceWorkplaceSync(Boolean(user?.id));
   const tabBarInsets = useMemo(() => getEffectiveTabBarInsets(insets), [insets]);
   const tabBarHeight = useMemo(() => getTabBarHeight(insets), [insets]);
@@ -55,13 +58,13 @@ const MainTabNavigator: React.FC = () => {
     userId: user?.id,
     enabled: gpsLinked && locationPermission.granted,
   });
-  const confirmedOrdersCount = useMirrorPricingConfirmedOrdersStore((state) => state.orders.length);
 
   const showHomeTab = user?.role === 'admin' || user?.role === 'employee';
   const showPricingTab = user?.role === 'admin' || user?.role === 'employee';
-  const showFinance = canAccessModule(user, 'finance');
+  const showFinance = canAccessFinanceTab(user);
   const showEmployeesTab = canAccessEmployeeManagement(user);
   const showAttendanceTab = user?.role === 'employee';
+  const confirmedOrdersCount = useConfirmedOrdersTabBadge(showPricingTab && pricingTabVisited);
 
   const initialRouteName = useMemo(() => {
     if (showHomeTab) return 'DashboardTab';
@@ -82,26 +85,25 @@ const MainTabNavigator: React.FC = () => {
     [theme, tabBarHeight, tabBarInsets.bottom],
   );
 
+  const screenOptions = useMemo(
+    () => ({
+      headerShown: false as const,
+      tabBarActiveTintColor: theme.colors.primary,
+      tabBarInactiveTintColor: theme.colors.icon,
+      tabBarStyle,
+      tabBarLabel: ({color, children}: {color: string; children: string}) => (
+        <TabBarLabel color={color}>{String(children ?? '')}</TabBarLabel>
+      ),
+    }),
+    [tabBarStyle, theme.colors.icon, theme.colors.primary],
+  );
+
   return (
-    <Tab.Navigator
-      lazy
-      initialRouteName={initialRouteName}
-      safeAreaInsets={tabBarInsets}
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: theme.colors.primary,
-        tabBarInactiveTintColor: theme.colors.icon,
-        tabBarStyle,
-        tabBarLabel: ({color, children}) => (
-          <TabBarLabel color={color}>{String(children ?? '')}</TabBarLabel>
-        ),
-      }}
-    >
+    <Tab.Navigator lazy initialRouteName={initialRouteName} safeAreaInsets={tabBarInsets} screenOptions={screenOptions}>
       {showHomeTab ? (
         <Tab.Screen
           name="DashboardTab"
           component={DashboardNavigator}
-          listeners={tabPressResetToRoot('DashboardTab')}
           options={{
             title: user?.role === 'admin' ? t('dashboard') : t('employeeHome'),
             tabBarIcon: ({color, size}) => (
@@ -118,7 +120,11 @@ const MainTabNavigator: React.FC = () => {
         <Tab.Screen
           name="FinanceTab"
           component={FinanceNavigator}
-          listeners={tabPressResetToRoot('FinanceTab')}
+          listeners={{
+            focus: () => {
+              enableAdminLiveMonitoring();
+            },
+          }}
           options={{
             title: t('finance'),
             tabBarIcon: ({color, size}) => (
@@ -131,7 +137,13 @@ const MainTabNavigator: React.FC = () => {
         <Tab.Screen
           name="PricingTab"
           component={PricingNavigator}
-          listeners={tabPressResetToRoot('PricingTab')}
+          listeners={{
+            focus: () => {
+              setPricingTabVisited(true);
+              enableAdminLiveMonitoring();
+              enableOrdersBackgroundSync();
+            },
+          }}
           options={{
             title: t('orders'),
             tabBarBadge: confirmedOrdersCount > 0 ? confirmedOrdersCount : undefined,
@@ -145,7 +157,11 @@ const MainTabNavigator: React.FC = () => {
         <Tab.Screen
           name="AttendanceTab"
           component={AttendanceNavigator}
-          listeners={tabPressResetToRoot('AttendanceTab')}
+          listeners={{
+            focus: () => {
+              enableAdminLiveMonitoring();
+            },
+          }}
           options={{
             title: t('myAttendance'),
             tabBarIcon: ({color, size}) => (
@@ -158,7 +174,11 @@ const MainTabNavigator: React.FC = () => {
         <Tab.Screen
           name="EmployeesTab"
           component={EmployeeManagementNavigator}
-          listeners={tabPressResetToRoot('EmployeesTab')}
+          listeners={{
+            focus: () => {
+              enableAdminLiveMonitoring();
+            },
+          }}
           options={{
             title: t('manageEmployees'),
             tabBarIcon: ({color, size}) => (
@@ -170,7 +190,6 @@ const MainTabNavigator: React.FC = () => {
       <Tab.Screen
         name="SettingsTab"
         component={SettingsNavigator}
-        listeners={tabPressResetToRoot('SettingsTab')}
         options={{
           title: t('settings'),
           headerShown: false,

@@ -9,11 +9,13 @@ export function useAdminPushRegistration(userId: string | undefined, enabled: bo
       return;
     }
 
-    void registerAdminPushNotifications(userId);
+    void registerAdminPushNotifications(userId).catch((error) => {
+      console.warn('[useAdminPushRegistration] failed', error);
+    });
 
     const handleAppState = (state: AppStateStatus) => {
       if (state === 'active') {
-        void registerAdminPushNotifications(userId);
+        void registerAdminPushNotifications(userId).catch(() => undefined);
       }
     };
 
@@ -21,7 +23,7 @@ export function useAdminPushRegistration(userId: string | undefined, enabled: bo
 
     return () => {
       subscription.remove();
-      void unregisterAdminPushNotifications(userId);
+      void unregisterAdminPushNotifications(userId).catch(() => undefined);
     };
   }, [enabled, userId]);
 }

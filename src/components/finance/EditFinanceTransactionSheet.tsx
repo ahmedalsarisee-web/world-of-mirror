@@ -88,7 +88,7 @@ const EditFinanceTransactionSheet: React.FC<Props> = ({
             value={value}
             onNumberChange={onChange}
             onBlur={onBlur}
-            error={errors.amount?.message}
+            error={errors.amount?.message ? t(errors.amount.message) : undefined}
           />
         )}
       />
@@ -102,6 +102,7 @@ const EditFinanceTransactionSheet: React.FC<Props> = ({
             value={value ?? ''}
             onChangeText={onChange}
             onBlur={onBlur}
+            error={errors.note?.message ? t(errors.note.message) : undefined}
           />
         )}
       />

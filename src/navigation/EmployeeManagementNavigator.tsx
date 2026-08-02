@@ -10,6 +10,7 @@ import EmployeeManagementScreen from '@app/screens/finance/EmployeeManagementScr
 import EmployeeLocationScreen from '@app/screens/finance/EmployeeLocationScreen';
 import EmployeeAttendanceScreen from '@app/screens/finance/EmployeeAttendanceScreen';
 import EmployeeAttendanceResetScreen from '@app/screens/finance/EmployeeAttendanceResetScreen';
+import EmployeeAttendanceShiftHoursScreen from '@app/screens/finance/EmployeeAttendanceShiftHoursScreen';
 import EmployeePermissionsScreen from '@app/screens/finance/EmployeePermissionsScreen';
 import UserFormScreen from '@app/screens/finance/UserFormScreen';
 import type {EmployeeManagementStackParamList} from '@app/types/navigation';
@@ -30,32 +31,37 @@ const EmployeeManagementNavigator: React.FC = () => {
       <Stack.Screen
         name="EmployeeDetail"
         component={EmployeeDetailScreen}
-        options={{title: t('employeeProfile')}}
+        options={{headerShown: false}}
       />
       <Stack.Screen
         name="EmployeePermissions"
         component={EmployeePermissionsScreen}
-        options={{title: t('employeePermissions')}}
+        options={{headerShown: false}}
       />
       <Stack.Screen
         name="EmployeeLocation"
         component={EmployeeLocationScreen}
-        options={{title: t('employeeLocation')}}
+        options={{headerShown: false}}
       />
       <Stack.Screen
         name="EmployeeAttendance"
         component={EmployeeAttendanceScreen}
-        options={{title: t('employeeAttendance')}}
+        options={{headerShown: false}}
       />
       <Stack.Screen
         name="EmployeeAttendanceReset"
         component={EmployeeAttendanceResetScreen}
-        options={{title: t('attendanceResetScheduleTitle')}}
+        options={({route}) => ({title: route.params.userName})}
+      />
+      <Stack.Screen
+        name="EmployeeAttendanceShiftHours"
+        component={EmployeeAttendanceShiftHoursScreen}
+        options={({route}) => ({title: route.params.userName})}
       />
       <Stack.Screen
         name="AdminDetail"
         component={AdminDetailScreen}
-        options={{title: t('adminProfile')}}
+        options={({route}) => ({title: route.params.userName})}
       />
       <Stack.Screen name="UserForm" component={UserFormScreen} options={{title: t('addUser')}} />
     </Stack.Navigator>

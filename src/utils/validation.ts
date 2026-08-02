@@ -7,10 +7,20 @@ const numericField = (message: string) =>
     return n;
   }).pipe(z.number({message}));
 
-export const transactionSchema = z.object({
-  amount: numericField('Amount must be greater than 0').pipe(z.number().positive('Amount must be greater than 0')),
-  note: z.string().optional(),
-});
+export const transactionSchema = z
+  .object({
+    amount: numericField('transactionAmountInvalid').pipe(z.number().min(0, 'transactionAmountInvalid')),
+    note: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.amount === 0 && !data.note?.trim()) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'transactionNoteRequiredForZeroAmount',
+        path: ['note'],
+      });
+    }
+  });
 
 export type TransactionFormValues = z.input<typeof transactionSchema>;
 export type TransactionSchemaType = z.output<typeof transactionSchema>;
@@ -57,11 +67,32 @@ export type AttendanceHoursResetRecordFormValues = z.input<typeof attendanceHour
 export const attendanceDayEditSchema = z
   .object({
     date: attendanceDateField,
-    checkInTime: attendanceTimeField,
+    isAbsent: z.boolean().optional(),
+    checkInTime: z.string().trim(),
     checkOutTime: z.string().trim(),
     note: z.string().optional(),
   })
   .superRefine((data, ctx) => {
+    if (data.isAbsent) {
+      if (!data.note?.trim()) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'attendanceAbsentNoteRequired',
+          path: ['note'],
+        });
+      }
+      return;
+    }
+
+    if (!/^\d{2}:\d{2}$/.test(data.checkInTime)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'attendanceRecordInvalidTime',
+        path: ['checkInTime'],
+      });
+      return;
+    }
+
     if (!data.checkOutTime) {
       return;
     }

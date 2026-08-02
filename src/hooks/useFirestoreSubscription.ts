@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 
 interface Options {
   enabled?: boolean;
@@ -13,21 +13,26 @@ export function useFirestoreSubscription<T>(
   const enabled = options?.enabled ?? true;
   const [data, setData] = useState<T>(initialValue);
   const [isLoading, setIsLoading] = useState(true);
+  const hasDataRef = useRef(false);
 
   useEffect(() => {
     if (!enabled) {
+      hasDataRef.current = false;
       setData(initialValue);
       setIsLoading(false);
       return;
     }
 
     let active = true;
-    setIsLoading(true);
+    if (!hasDataRef.current) {
+      setIsLoading(true);
+    }
 
     const finish = (value: T) => {
       if (!active) {
         return;
       }
+      hasDataRef.current = true;
       setData(value);
       setIsLoading(false);
     };

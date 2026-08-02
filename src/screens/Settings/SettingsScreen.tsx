@@ -21,11 +21,13 @@ import {
   verifyDataResetPassword,
 } from '@app/services/auth.service';
 import {clearAllBusinessData} from '@app/services/adminDataReset.service';
+import {collectAdminBackupData} from '@app/services/adminBackupData.service';
 import {hasDedicatedDataResetPassword} from '@app/config/dataResetAccess';
 import {useAuthStore} from '@app/stores/authStore';
 import {useAttendanceWorkplaceStore} from '@app/stores/attendanceWorkplaceStore';
 import type {SettingsStackParamList} from '@app/types/navigation';
 import {isPrimaryAdmin} from '@app/utils/adminPermissions';
+import {exportAdminBackupReport} from '@app/utils/exportAdminBackupReport';
 import {getListCardStyle} from '@shared/theme/themeHelpers';
 
 type BottomSheetType = 'language' | 'theme' | 'clearDataPassword' | null;
@@ -45,6 +47,7 @@ type SettingsNav = NativeStackNavigationProp<SettingsStackParamList, 'SettingsHo
 const SettingsScreen: React.FC = () => {
   const [bottomSheet, setBottomSheet] = useState<BottomSheetType>(null);
   const [clearingAllData, setClearingAllData] = useState(false);
+  const [exportingBackup, setExportingBackup] = useState(false);
   const [dataResetPassword, setDataResetPassword] = useState('');
   const [verifyingResetPassword, setVerifyingResetPassword] = useState(false);
   const navigation = useNavigation<SettingsNav>();
@@ -165,8 +168,8 @@ const SettingsScreen: React.FC = () => {
   const currentTheme = themeOptions.find((option) => option.key === themePreference) ?? themeOptions[0];
 
   const handleSelectLanguage = (key: 'en' | 'ar') => {
-    changeLanguage(key);
     setBottomSheet(null);
+    void changeLanguage(key);
   };
 
   const handleSelectTheme = (key: 'light' | 'dark') => {
@@ -239,6 +242,24 @@ const SettingsScreen: React.FC = () => {
     setBottomSheet('clearDataPassword');
   };
 
+  const handleExportBackup = () => {
+    void (async () => {
+      setExportingBackup(true);
+      try {
+        const snapshot = await collectAdminBackupData(user, authEmail);
+        await exportAdminBackupReport(snapshot, t, {
+          isRtl: language === 'ar',
+          appName: t('appName'),
+        });
+      } catch (error) {
+        console.error('[SettingsScreen] export backup failed', error);
+        Alert.alert(t('error'), t('settingsExportBackupFailed'));
+      } finally {
+        setExportingBackup(false);
+      }
+    })();
+  };
+
   const sheetTitle =
     bottomSheet === 'language'
       ? t('chooseLanguage')
@@ -296,6 +317,18 @@ const SettingsScreen: React.FC = () => {
                 onPress={() => navigation.navigate('AttendanceWorkplaceSettings')}
               />
             </View>
+            <View style={[styles.adminCard, listCard]}>
+              <Text style={[styles.adminHint, {color: theme.typography.secondary}]}>
+                {t('settingsExportBackupHint')}
+              </Text>
+              <AppButton
+                label={t('settingsExportBackup')}
+                variant="outline"
+                onPress={handleExportBackup}
+                loading={exportingBackup}
+                disabled={exportingBackup}
+              />
+            </View>
           </>
         ) : null}
 
@@ -347,7 +380,7 @@ const SettingsScreen: React.FC = () => {
         </View>
 
         <View style={styles.logoutWrap}>
-          <AppButton label={t('logout')} variant="danger" onPress={() => void logout()} />
+          <AppButton label={t('logout')} variant="danger" onPress={() => void logout().catch(() => undefined)} />
         </View>
       </ScrollView>
 
@@ -435,7 +468,7 @@ const SettingsScreen: React.FC = () => {
         ) : null}
       </BottomSheet>
 
-      <LoadingOverlay visible={clearingAllData || verifyingResetPassword} />
+      <LoadingOverlay visible={clearingAllData || verifyingResetPassword || exportingBackup} />
     </View>
   );
 };

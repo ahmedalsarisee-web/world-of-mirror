@@ -7,6 +7,72 @@
         {"fieldPath": "userId", "order": "ASCENDING"},
         {"fieldPath": "createdAt", "order": "DESCENDING"}
       ]
+    },
+    {
+      "collectionGroup": "transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "ledgerId", "order": "ASCENDING"},
+        {"fieldPath": "userId", "order": "ASCENDING"},
+        {"fieldPath": "createdAt", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "mirrorConfirmedOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "listBucket", "order": "ASCENDING"},
+        {"fieldPath": "statusChangedAt", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "mirrorConfirmedOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "listBucket", "order": "ASCENDING"},
+        {"fieldPath": "hasOutstandingBalance", "order": "ASCENDING"},
+        {"fieldPath": "statusChangedAt", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "mirrorConfirmedOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "listBucket", "order": "ASCENDING"},
+        {"fieldPath": "paymentFollowUpRequired", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "mirrorConfirmedOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "statusChangedAt", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "mirrorConfirmedOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "isOrderActive", "order": "ASCENDING"},
+        {"fieldPath": "statusChangedAt", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "mirrorConfirmedOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "isOrderActive", "order": "ASCENDING"},
+        {"fieldPath": "confirmedAt", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "mirrorConfirmedOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "confirmedAt", "order": "DESCENDING"}
+      ]
     }
   ],
   "fieldOverrides": []

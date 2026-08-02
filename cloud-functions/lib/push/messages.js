@@ -4,6 +4,7 @@ exports.formatCurrency = formatCurrency;
 exports.buildFinancePushMessage = buildFinancePushMessage;
 exports.buildAttendancePushMessage = buildAttendancePushMessage;
 exports.buildConfirmedOrderPushMessage = buildConfirmedOrderPushMessage;
+exports.buildOrderMovePushMessage = buildOrderMovePushMessage;
 const TRANSACTION_TYPE_LABELS = {
     received: 'استلام',
     paid: 'دفع',
@@ -15,35 +16,51 @@ const TRANSACTION_TYPE_LABELS = {
 };
 function formatCurrency(amount) {
     const value = Number.isFinite(amount) ? amount : 0;
-    return `${value.toLocaleString('ar-SA')} ر.س`;
+    return `${value.toLocaleString('ar-SA')} د.أ`;
 }
-function buildFinancePushMessage(accountName, type, amount, note) {
+function buildFinancePushMessage(actorName, accountName, type, amount, note) {
     const typeLabel = TRANSACTION_TYPE_LABELS[type] ?? type;
     const amountLabel = formatCurrency(amount);
     const trimmedNote = typeof note === 'string' ? note.trim() : '';
     const body = trimmedNote
-        ? `${accountName} · ${typeLabel} · ${amountLabel} · ${trimmedNote}`
-        : `${accountName} · ${typeLabel} · ${amountLabel}`;
+        ? `قام ${actorName} بتسجيل ${typeLabel} على حساب ${accountName} بمبلغ ${amountLabel} — ${trimmedNote}`
+        : `قام ${actorName} بتسجيل ${typeLabel} على حساب ${accountName} بمبلغ ${amountLabel}`;
     return {
-        title: 'عملية مالية جديدة',
+        title: 'حركة مالية جديدة',
         body,
     };
 }
 function buildAttendancePushMessage(employeeName, type, note) {
-    const actionLabel = type === 'check_in' ? 'حضور' : 'انصراف';
     const trimmedNote = typeof note === 'string' ? note.trim() : '';
+    const isCheckIn = type === 'check_in';
     const body = trimmedNote
-        ? `${employeeName} · ${actionLabel} · ${trimmedNote}`
-        : `${employeeName} · ${actionLabel}`;
+        ? isCheckIn
+            ? `سجّل ${employeeName} حضوراً — ${trimmedNote}`
+            : `سجّل ${employeeName} انصرافاً — ${trimmedNote}`
+        : isCheckIn
+            ? `سجّل ${employeeName} حضوراً`
+            : `سجّل ${employeeName} انصرافاً`;
     return {
-        title: type === 'check_in' ? 'تسجيل حضور' : 'تسجيل انصراف',
+        title: isCheckIn ? 'تسجيل حضور' : 'تسجيل انصراف',
         body,
     };
 }
-function buildConfirmedOrderPushMessage(customerName, total) {
+function buildConfirmedOrderPushMessage(customerName, total, invoiceNumber) {
+    const invoiceLabel = invoiceNumber !== undefined && Number.isFinite(invoiceNumber) && invoiceNumber > 0
+        ? `#${Math.floor(invoiceNumber)}`
+        : 'طلب جديد';
     return {
-        title: 'طلب مؤكد جديد',
-        body: `${customerName} · ${formatCurrency(total)}`,
+        title: 'طلب جديد قيد التجهيز',
+        body: `${invoiceLabel} — العميل: ${customerName} — الإجمالي: ${formatCurrency(total)}`,
+    };
+}
+function buildOrderMovePushMessage(employeeName, fromLabel, toLabel, invoiceNumber) {
+    const invoiceLabel = invoiceNumber !== undefined && Number.isFinite(invoiceNumber) && invoiceNumber > 0
+        ? `#${Math.floor(invoiceNumber)}`
+        : 'طلب';
+    return {
+        title: 'نقل طلب',
+        body: `${invoiceLabel} — نقل ${employeeName} من ${fromLabel} إلى ${toLabel}`,
     };
 }
 //# sourceMappingURL=messages.js.map

@@ -23,19 +23,32 @@ interface Props {
   children: React.ReactNode;
   sheetStyle?: ViewStyle;
   formFields?: string[];
+  showsScrollIndicator?: boolean;
+  /** When false, children manage their own scroll (e.g. FlatList). Default true. */
+  bodyScrollable?: boolean;
+  /**
+   * overlay: lift the sheet with keyboard height (default).
+   * scroll: keep overlay fixed; rely on ScrollView keyboard insets only (less flicker in note fields).
+   */
+  keyboardInsetMode?: 'overlay' | 'scroll';
 }
 
 const BACKDROP_DELAY_MS = 350;
 
-const BottomSheetScroll: React.FC<{children: React.ReactNode}> = ({children}) => {
+const BottomSheetScroll: React.FC<{children: React.ReactNode; showsScrollIndicator: boolean}> = ({
+  children,
+  showsScrollIndicator,
+}) => {
   const {layoutStyle} = useDirection();
   const {scrollRef} = useFormKeyboardRequired();
 
   return (
     <ScrollView
       ref={scrollRef}
-      showsVerticalScrollIndicator={false}
+      style={styles.bodyScroll}
+      showsVerticalScrollIndicator={showsScrollIndicator}
       bounces={false}
+      nestedScrollEnabled
       contentContainerStyle={layoutStyle}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
@@ -46,7 +59,17 @@ const BottomSheetScroll: React.FC<{children: React.ReactNode}> = ({children}) =>
   );
 };
 
-const BottomSheet: React.FC<Props> = ({visible, title, onClose, children, sheetStyle, formFields}) => {
+const BottomSheet: React.FC<Props> = ({
+  visible,
+  title,
+  onClose,
+  children,
+  sheetStyle,
+  formFields,
+  showsScrollIndicator = false,
+  bodyScrollable = true,
+  keyboardInsetMode = 'overlay',
+}) => {
   const {theme} = useTheme();
   const {language} = useLanguage();
   const insets = useSafeAreaInsets();
@@ -84,7 +107,9 @@ const BottomSheet: React.FC<Props> = ({visible, title, onClose, children, sheetS
     };
   }, [visible]);
 
-  const bottomInset = keyboardHeight > 0 ? keyboardHeight : insets.bottom;
+  const useOverlayKeyboardInset = keyboardInsetMode === 'overlay';
+  const bottomInset =
+    useOverlayKeyboardInset && keyboardHeight > 0 ? keyboardHeight : insets.bottom;
 
   const handleBackdropPress = () => {
     if (Date.now() - openedAtRef.current < BACKDROP_DELAY_MS) {
@@ -93,14 +118,18 @@ const BottomSheet: React.FC<Props> = ({visible, title, onClose, children, sheetS
     onClose();
   };
 
-  const body = formFields?.length ? (
+  const body = !bodyScrollable ? (
+    <View style={[styles.bodyScroll, layoutStyle, styles.bodyStatic]}>{children}</View>
+  ) : formFields?.length ? (
     <FormKeyboardProvider fields={formFields}>
-      <BottomSheetScroll>{children}</BottomSheetScroll>
+      <BottomSheetScroll showsScrollIndicator={showsScrollIndicator}>{children}</BottomSheetScroll>
     </FormKeyboardProvider>
   ) : (
     <ScrollView
-      showsVerticalScrollIndicator={false}
+      style={styles.bodyScroll}
+      showsVerticalScrollIndicator={showsScrollIndicator}
       bounces={false}
+      nestedScrollEnabled
       contentContainerStyle={layoutStyle}
       keyboardShouldPersistTaps="handled"
       automaticallyAdjustKeyboardInsets
@@ -134,12 +163,15 @@ const BottomSheet: React.FC<Props> = ({visible, title, onClose, children, sheetS
           style={[
             styles.sheet,
             layoutStyle,
-            keyboardHeight > 0 ? styles.sheetWithKeyboard : null,
+            keyboardHeight > 0 && useOverlayKeyboardInset ? styles.sheetWithKeyboard : null,
             {
               backgroundColor: theme.colors.surface,
               borderTopLeftRadius: theme.components.bottomTab.radius,
               borderTopRightRadius: theme.components.bottomTab.radius,
-              paddingBottom: keyboardHeight > 0 ? 16 : Math.max(insets.bottom, 28),
+              paddingBottom:
+                keyboardHeight > 0 && useOverlayKeyboardInset
+                  ? 16
+                  : Math.max(insets.bottom, 28),
             },
             sheetStyle,
           ]}
@@ -192,6 +224,13 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 16,
     marginBottom: 16,
+  },
+  bodyScroll: {
+    flexShrink: 1,
+  },
+  bodyStatic: {
+    flexGrow: 1,
+    minHeight: 0,
   },
 });
 

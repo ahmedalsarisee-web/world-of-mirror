@@ -1,23 +1,25 @@
-import React, {useMemo} from 'react';
+import React, {useCallback, useEffect, useMemo} from 'react';
 import {Pressable, StyleSheet, Text, View} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {MaterialCommunityIcons} from '@expo/vector-icons';
 import {useTranslation} from 'react-i18next';
+import dayjs from 'dayjs';
 import IconLabelButton from '@app/components/common/IconLabelButton';
 import ListLoadingState from '@app/components/common/ListLoadingState';
 import ScreenContainer from '@app/components/common/ScreenContainer';
+import ScreenHeader from '@app/components/common/ScreenHeader';
 import {useDirection} from '@app/hooks/useDirection';
 import {useFirestoreSubscription} from '@app/hooks/useFirestoreSubscription';
+import {useUsersDirectory} from '@app/hooks/useUsersDirectory';
 import {useTheme} from '@app/context/ThemeContext';
-import {subscribeToAllAttendance} from '@app/services/attendance.service';
-import {getEmployees, getAdmins, subscribeToUsers} from '@app/services/users.service';
+import {subscribeToTodayAttendance} from '@app/services/attendance.service';
+import {backfillMissingProfileEmails, getEmployees, getAdmins} from '@app/services/users.service';
 import {useAuthStore} from '@app/stores/authStore';
-import type {AppUser, AttendanceRecord} from '@app/types/models';
+import type {AttendanceRecord} from '@app/types/models';
 import type {EmployeeManagementStackParamList} from '@app/types/navigation';
 import {canAccessEmployeeManagement, canManageAdmins} from '@app/utils/adminPermissions';
-import {formatPermissionSummary, resolveEmployeePermissions} from '@app/utils/employeePermissions';
-import {getEmployeePresenceStatus} from '@app/utils/attendanceReport';
+import {getEmployeePresenceStatus, getTodayAttendanceStatus} from '@app/utils/attendanceReport';
 import {getListCardStyle} from '@shared/theme/themeHelpers';
 
 type Nav = NativeStackNavigationProp<EmployeeManagementStackParamList, 'EmployeeManagementHome'>;
@@ -25,19 +27,19 @@ type Nav = NativeStackNavigationProp<EmployeeManagementStackParamList, 'Employee
 const EmployeeManagementScreen: React.FC = () => {
   const {t} = useTranslation();
   const {theme} = useTheme();
-  const {textStyle, inlineTextStyle, row, chevronForward, layoutStyle} = useDirection();
+  const {textStyle, inlineTextStyle, row, chevronForward} = useDirection();
   const navigation = useNavigation<Nav>();
   const currentUser = useAuthStore((s) => s.user);
   const authEmail = useAuthStore((s) => s.authEmail);
   const isAdmin = currentUser?.role === 'admin';
   const canManageAdminAccounts = canManageAdmins(currentUser, authEmail);
   const hasEmployeeManagementAccess = canAccessEmployeeManagement(currentUser);
-  const {data: users, isLoading} = useFirestoreSubscription<AppUser[]>([], subscribeToUsers);
+  const {users, isLoading} = useUsersDirectory('all', isAdmin);
   const {data: attendanceRecords} = useFirestoreSubscription<AttendanceRecord[]>(
     [],
-    subscribeToAllAttendance,
+    subscribeToTodayAttendance,
     [],
-    {enabled: isAdmin},
+    {enabled: isAdmin && hasEmployeeManagementAccess},
   );
   const listCard = useMemo(() => getListCardStyle(theme), [theme]);
 
@@ -57,17 +59,37 @@ const EmployeeManagementScreen: React.FC = () => {
     return map;
   }, [attendanceRecords]);
 
+  const getAttendanceStatusColor = useCallback(
+    (records: AttendanceRecord[]): string => {
+      const todayKey = dayjs().format('YYYY-MM-DD');
+      const hasTodayActivity = records.some(
+        (record) =>
+          (record.type === 'check_in' || record.type === 'check_out') &&
+          dayjs(record.createdAt).format('YYYY-MM-DD') === todayKey,
+      );
+
+      if (!hasTodayActivity) {
+        return theme.typography.secondary;
+      }
+
+      return getEmployeePresenceStatus(records) === 'present'
+        ? theme.colors.balancePositive
+        : theme.colors.balanceNegative;
+    },
+    [theme.colors.balanceNegative, theme.colors.balancePositive, theme.typography.secondary],
+  );
+
+  useEffect(() => {
+    if (!isAdmin || !hasEmployeeManagementAccess) {
+      return;
+    }
+
+    void backfillMissingProfileEmails().catch(() => undefined);
+  }, [hasEmployeeManagementAccess, isAdmin]);
+
   const styles = useMemo(
     () =>
       StyleSheet.create({
-        header: {
-          flexDirection: row,
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-          marginBottom: 16,
-        },
-        title: {flex: 1, fontSize: 20, fontWeight: '700'},
         card: {
           flexDirection: row,
           alignItems: 'center',
@@ -77,9 +99,10 @@ const EmployeeManagementScreen: React.FC = () => {
         },
         textWrap: {flex: 1, minWidth: 0, alignSelf: 'center'},
         name: {fontSize: 16, fontWeight: '600', marginBottom: 4},
+        email: {fontSize: 13, lineHeight: 18},
         summary: {fontSize: 13, lineHeight: 18},
+        presence: {fontSize: 12, fontWeight: '700', flexShrink: 0},
         trailing: {flexDirection: row, alignItems: 'center', gap: 8, flexShrink: 0},
-        presence: {fontSize: 13, fontWeight: '700', flexShrink: 0},
         sectionTitle: {
           fontSize: 16,
           fontWeight: '600',
@@ -107,16 +130,18 @@ const EmployeeManagementScreen: React.FC = () => {
   }
 
   return (
-    <ScreenContainer>
-      <View style={[styles.header, layoutStyle]}>
-        <Text style={[styles.title, textStyle, {color: theme.typography.primary}]}>{t('manageEmployees')}</Text>
-        <IconLabelButton
-          label={t('addUser')}
-          icon="account-plus"
-          onPress={() => navigation.navigate('UserForm')}
-        />
-      </View>
-
+    <>
+      <ScreenHeader
+        title={t('manageEmployees')}
+        endAction={
+          <IconLabelButton
+            label={t('addUser')}
+            icon="account-plus"
+            onPress={() => navigation.navigate('UserForm')}
+          />
+        }
+      />
+      <ScreenContainer>
       {isLoading ? (
         <ListLoadingState />
       ) : (
@@ -180,52 +205,51 @@ const EmployeeManagementScreen: React.FC = () => {
           ) : (
             employees.map((employee) => {
               const employeeRecords = attendanceByUser.get(employee.id) ?? [];
-              const isPresent = getEmployeePresenceStatus(employeeRecords) === 'present';
+              const attendanceStatus = getTodayAttendanceStatus(employeeRecords, t);
+              const attendanceColor = getAttendanceStatusColor(employeeRecords);
 
               return (
-                <Pressable
-                  key={employee.id}
-                  style={[styles.card, listCard]}
-                  onPress={() =>
-                    navigation.navigate('EmployeeDetail', {
-                      userId: employee.id,
-                      userName: employee.name,
-                    })
-                  }
-                >
-                  <View style={styles.textWrap}>
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.name, inlineTextStyle, {color: theme.typography.primary}]}
-                    >
-                      {employee.name}
-                    </Text>
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.summary, inlineTextStyle, {color: theme.typography.secondary}]}
-                    >
-                      {formatPermissionSummary(resolveEmployeePermissions(employee), t)}
-                    </Text>
-                  </View>
-                  <View style={styles.trailing}>
-                    <Text
-                      style={[
-                        styles.presence,
-                        inlineTextStyle,
-                        {color: isPresent ? theme.colors.balancePositive : theme.colors.balanceNegative},
-                      ]}
-                    >
-                      {isPresent ? t('employeePresent') : t('employeeAway')}
-                    </Text>
-                    <MaterialCommunityIcons name={chevronForward as any} size={22} color={theme.colors.icon} />
-                  </View>
-                </Pressable>
+              <Pressable
+                key={employee.id}
+                style={[styles.card, listCard]}
+                onPress={() =>
+                  navigation.navigate('EmployeeDetail', {
+                    userId: employee.id,
+                    userName: employee.name,
+                  })
+                }
+              >
+                <View style={styles.textWrap}>
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.name, inlineTextStyle, {color: theme.typography.primary}]}
+                  >
+                    {employee.name}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.email, inlineTextStyle, {color: theme.typography.secondary}]}
+                  >
+                    {employee.email?.trim() || '—'}
+                  </Text>
+                </View>
+                <View style={styles.trailing}>
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.presence, inlineTextStyle, {color: attendanceColor}]}
+                  >
+                    {attendanceStatus}
+                  </Text>
+                  <MaterialCommunityIcons name={chevronForward as any} size={22} color={theme.colors.icon} />
+                </View>
+              </Pressable>
               );
             })
           )}
         </>
       )}
-    </ScreenContainer>
+      </ScreenContainer>
+    </>
   );
 };
 

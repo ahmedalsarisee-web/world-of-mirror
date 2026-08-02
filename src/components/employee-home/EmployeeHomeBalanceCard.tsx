@@ -10,9 +10,11 @@ import {getListCardStyle} from '@shared/theme/themeHelpers';
 interface Props {
   balance: number;
   onPress: () => void;
+  variant?: 'default' | 'compact';
 }
 
-const EmployeeHomeBalanceCard: React.FC<Props> = ({balance, onPress}) => {
+const EmployeeHomeBalanceCard: React.FC<Props> = ({balance, onPress, variant = 'default'}) => {
+  const isCompact = variant === 'compact';
   const {t} = useTranslation();
   const {theme} = useTheme();
   const {textStyle, centeredTextStyle, row, chevronForward, layoutStyle} = useDirection();
@@ -24,14 +26,14 @@ const EmployeeHomeBalanceCard: React.FC<Props> = ({balance, onPress}) => {
         card: {
           flexDirection: row,
           alignItems: 'center',
-          padding: theme.spacing.md,
-          marginBottom: theme.spacing.lg,
+          padding: isCompact ? theme.spacing.sm : theme.spacing.md,
+          marginBottom: isCompact ? 0 : theme.spacing.lg,
           gap: theme.spacing.sm,
         },
         iconWrap: {
-          width: 36,
-          height: 36,
-          borderRadius: 18,
+          width: isCompact ? 32 : 36,
+          height: isCompact ? 32 : 36,
+          borderRadius: isCompact ? 16 : 18,
           alignItems: 'center',
           justifyContent: 'center',
           backgroundColor: theme.colors.successLight,
@@ -46,7 +48,7 @@ const EmployeeHomeBalanceCard: React.FC<Props> = ({balance, onPress}) => {
           marginTop: 2,
         },
       }),
-    [row, theme],
+    [isCompact, row, theme],
   );
 
   return (
@@ -59,10 +61,12 @@ const EmployeeHomeBalanceCard: React.FC<Props> = ({balance, onPress}) => {
       </View>
       <View style={styles.textWrap}>
         <Text style={[styles.label, textStyle, {color: theme.typography.secondary}]}>{t('currentBalance')}</Text>
-        <AmountText amount={balance} size="md" currencyLabel={t('currencyLabel')} />
-        <Text style={[styles.hint, textStyle, {color: theme.typography.secondary}]}>
-          {t('employeeHomeViewAccount')}
-        </Text>
+        <AmountText amount={balance} size={isCompact ? 'sm' : 'md'} currencyLabel={t('currencyLabel')} />
+        {!isCompact ? (
+          <Text style={[styles.hint, textStyle, {color: theme.typography.secondary}]}>
+            {t('employeeHomeViewAccount')}
+          </Text>
+        ) : null}
       </View>
       <MaterialCommunityIcons name={chevronForward} size={20} color={theme.colors.icon} />
     </Pressable>

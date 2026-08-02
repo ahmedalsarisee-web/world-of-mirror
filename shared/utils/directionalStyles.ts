@@ -9,12 +9,16 @@ export const isRTL = (d: LangDirection) => d === LangDirection.RTL;
  * Use `left` for block text so it appears on the visual right in Arabic.
  */
 export const getTextAlign = (d: LangDirection): TextStyle['textAlign'] => {
-  if (I18nManager.isRTL) return 'left';
+  if (I18nManager.isRTL) {
+    return 'left';
+  }
   return d === LangDirection.RTL ? 'right' : 'left';
 };
 
 export const getFlexDirection = (d: LangDirection): ViewStyle['flexDirection'] => {
-  if (I18nManager.isRTL) return 'row';
+  if (I18nManager.isRTL) {
+    return 'row';
+  }
   return d === LangDirection.RTL ? 'row-reverse' : 'row';
 };
 
@@ -29,16 +33,26 @@ export const getLayoutDirection = (d: LangDirection): ViewStyle['direction'] | u
 export const getWritingDirection = (d: LangDirection): TextStyle['writingDirection'] =>
   d === LangDirection.RTL ? 'rtl' : 'ltr';
 
+/** TextInput alignment — explicit visual side; native RTL mirroring is unreliable in inputs. */
+export const getInputTextStyle = (d: LangDirection): TextStyle => ({
+  textAlign: d === LangDirection.RTL ? 'right' : 'left',
+  writingDirection: getWritingDirection(d),
+});
+
 export const getAlignSelf = (d: LangDirection): ViewStyle['alignSelf'] =>
   d === LangDirection.RTL ? 'flex-end' : 'flex-start';
 
 export const getAlignItemsStart = (d: LangDirection): ViewStyle['alignItems'] => {
-  if (I18nManager.isRTL) return 'flex-start';
+  if (I18nManager.isRTL) {
+    return 'flex-start';
+  }
   return d === LangDirection.RTL ? 'flex-end' : 'flex-start';
 };
 
 export const getAlignItemsEnd = (d: LangDirection): ViewStyle['alignItems'] => {
-  if (I18nManager.isRTL) return 'flex-end';
+  if (I18nManager.isRTL) {
+    return 'flex-end';
+  }
   return d === LangDirection.RTL ? 'flex-start' : 'flex-end';
 };
 
@@ -94,11 +108,15 @@ export const getPaddingStart = (_d: LangDirection, v: number) => ({paddingStart:
 export const getPaddingEnd = (_d: LangDirection, v: number) => ({paddingEnd: v});
 
 export const getPositionEnd = (d: LangDirection, value: number) => {
-  if (I18nManager.isRTL) return {left: value};
+  if (I18nManager.isRTL) {
+    return {left: value};
+  }
   return d === LangDirection.RTL ? {left: value} : {right: value};
 };
 
 export const getPositionStart = (d: LangDirection, value: number) => {
-  if (I18nManager.isRTL) return {right: value};
+  if (I18nManager.isRTL) {
+    return {right: value};
+  }
   return d === LangDirection.RTL ? {right: value} : {left: value};
 };

@@ -12,6 +12,7 @@ interface Props {
   cashOut: number;
   totalBalance: number;
   loading?: boolean;
+  variant?: 'default' | 'compact';
 }
 
 type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
@@ -73,12 +74,19 @@ const FlowChip: React.FC<FlowChipProps> = ({icon, label, amount, tone, currencyL
   );
 };
 
-const FinanceSummaryCards: React.FC<Props> = ({cashIn, cashOut, totalBalance, loading}) => {
+const FinanceSummaryCards: React.FC<Props> = ({
+  cashIn,
+  cashOut,
+  totalBalance,
+  loading,
+  variant = 'default',
+}) => {
   const {t} = useTranslation();
   const {theme} = useTheme();
-  const {textStyle, row, layoutStyle, centeredTextStyle} = useDirection();
+  const {textStyle, row, layoutStyle, centeredTextStyle, inlineTextStyle} = useDirection();
   const listCard = useMemo(() => getListCardStyle(theme), [theme]);
   const currencyLabel = t('currencyLabel');
+  const isCompact = variant === 'compact';
 
   const styles = useMemo(
     () =>
@@ -119,6 +127,28 @@ const FinanceSummaryCards: React.FC<Props> = ({cashIn, cashOut, totalBalance, lo
           flexDirection: row,
           gap: theme.spacing.sm,
         },
+        compactRoot: {
+          overflow: 'hidden',
+          paddingVertical: theme.spacing.md,
+          paddingHorizontal: theme.spacing.md,
+          borderRadius: theme.radius.lg,
+        },
+        compactRow: {
+          flexDirection: row,
+          alignItems: 'stretch',
+          gap: theme.spacing.sm,
+        },
+        compactCol: {
+          flex: 1,
+          minWidth: 0,
+          alignItems: 'center',
+          gap: 4,
+        },
+        compactLabel: {
+          fontSize: 10,
+          fontWeight: '600',
+          textAlign: 'center',
+        },
         loadingWrap: {
           minHeight: 72,
           alignItems: 'center',
@@ -133,6 +163,54 @@ const FinanceSummaryCards: React.FC<Props> = ({cashIn, cashOut, totalBalance, lo
     return (
       <View style={[styles.loadingWrap, listCard, styles.root]}>
         <ActivityIndicator color={theme.colors.primary} />
+      </View>
+    );
+  }
+
+  if (isCompact) {
+    return (
+      <View style={[listCard, styles.compactRoot]}>
+        <View style={[styles.compactRow, layoutStyle]}>
+          <View style={styles.compactCol}>
+            <Text
+              style={[
+                styles.compactLabel,
+                centeredTextStyle,
+                {color: theme.typography.secondary},
+              ]}
+              numberOfLines={2}
+            >
+              {t('totalBalance')}
+            </Text>
+            <AmountText amount={totalBalance} size="md" currencyLabel={currencyLabel} tone="positive" />
+          </View>
+          <View style={styles.compactCol}>
+            <Text
+              style={[
+                styles.compactLabel,
+                centeredTextStyle,
+                {color: theme.typography.secondary},
+              ]}
+              numberOfLines={2}
+            >
+              {t('cashIn')}
+            </Text>
+            <AmountText amount={cashIn} size="md" currencyLabel={currencyLabel} tone="positive" />
+          </View>
+          <View style={styles.compactCol}>
+            <Text
+              style={[
+                styles.compactLabel,
+                centeredTextStyle,
+                {color: theme.typography.secondary},
+              ]}
+              numberOfLines={2}
+            >
+              {t('cashOut')}
+            </Text>
+            <AmountText amount={cashOut} size="md" currencyLabel={currencyLabel} tone="negative" />
+          </View>
+        </View>
       </View>
     );
   }

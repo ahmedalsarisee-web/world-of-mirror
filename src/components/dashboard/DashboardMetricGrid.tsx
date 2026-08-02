@@ -20,9 +20,11 @@ export interface DashboardMetric {
 
 interface Props {
   metrics: DashboardMetric[];
+  variant?: 'default' | 'compact';
 }
 
-const DashboardMetricGrid: React.FC<Props> = ({metrics}) => {
+const DashboardMetricGrid: React.FC<Props> = ({metrics, variant = 'default'}) => {
+  const isCompact = variant === 'compact';
   const {theme} = useTheme();
   const {textStyle, row, layoutStyle, centeredTextStyle} = useDirection();
   const listCard = useMemo(() => getListCardStyle(theme), [theme]);
@@ -37,26 +39,26 @@ const DashboardMetricGrid: React.FC<Props> = ({metrics}) => {
         },
         tile: {
           flexGrow: 1,
-          flexBasis: metrics.length > 2 ? '30%' : '46%',
-          minWidth: metrics.length === 1 ? '100%' : 100,
-          padding: theme.spacing.md,
-          borderTopWidth: 3,
-          gap: theme.spacing.xs,
+          flexBasis: metrics.length > 2 ? (isCompact ? '31%' : '30%') : '46%',
+          minWidth: metrics.length === 1 ? '100%' : isCompact ? 90 : 100,
+          padding: isCompact ? theme.spacing.sm : theme.spacing.md,
+          borderTopWidth: isCompact ? 2 : 3,
+          gap: isCompact ? 2 : theme.spacing.xs,
         },
         iconWrap: {
-          width: 34,
-          height: 34,
-          borderRadius: 10,
+          width: isCompact ? 28 : 34,
+          height: isCompact ? 28 : 34,
+          borderRadius: isCompact ? 8 : 10,
           alignItems: 'center',
           justifyContent: 'center',
         },
         label: {
-          fontSize: theme.typographyScale.size.xs,
+          fontSize: isCompact ? 10 : theme.typographyScale.size.xs,
           fontWeight: '600',
-          lineHeight: 16,
+          lineHeight: isCompact ? 13 : 16,
         },
         value: {
-          fontSize: theme.typographyScale.size.lg,
+          fontSize: isCompact ? theme.typographyScale.size.md : theme.typographyScale.size.lg,
           fontWeight: '800',
         },
         hint: {
@@ -64,7 +66,7 @@ const DashboardMetricGrid: React.FC<Props> = ({metrics}) => {
           lineHeight: 14,
         },
       }),
-    [metrics.length, theme],
+    [isCompact, metrics.length, theme],
   );
 
   return (
@@ -79,7 +81,7 @@ const DashboardMetricGrid: React.FC<Props> = ({metrics}) => {
           ]}
         >
           <View style={[styles.iconWrap, {backgroundColor: metric.iconBackground}]}>
-            <MaterialCommunityIcons name={metric.icon} size={18} color={metric.iconColor} />
+            <MaterialCommunityIcons name={metric.icon} size={isCompact ? 15 : 18} color={metric.iconColor} />
           </View>
           <Text
             style={[styles.label, textStyle, centeredTextStyle, {color: theme.typography.secondary}]}

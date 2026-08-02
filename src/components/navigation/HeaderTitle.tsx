@@ -1,5 +1,5 @@
 import React from 'react';
-import {Platform, Text} from 'react-native';
+import {Platform, StyleSheet, Text, View} from 'react-native';
 import {useLanguage} from '@app/context/LangContext';
 import {appFont} from '@shared/theme/fonts';
 
@@ -12,22 +12,39 @@ const HeaderTitle: React.FC<Props> = ({children, color}) => {
   const {language} = useLanguage();
 
   return (
-    <Text
-      allowFontScaling={false}
-      style={[
-        appFont(language, 'bold'),
-        {
-          color,
-          fontSize: 17,
-          textAlign: 'center',
-          ...(Platform.OS === 'android' ? {includeFontPadding: false} : null),
-        },
-      ]}
-      numberOfLines={1}
-    >
-      {children}
-    </Text>
+    <View style={styles.wrap}>
+      <Text
+        allowFontScaling={false}
+        style={[
+          appFont(language, 'bold'),
+          {
+            color,
+            fontSize: 17,
+            lineHeight: 22,
+            textAlign: 'center',
+            width: '100%',
+            ...(Platform.OS === 'android' ? {includeFontPadding: false} : null),
+          },
+        ]}
+        numberOfLines={2}
+        adjustsFontSizeToFit
+        minimumFontScale={0.75}
+        ellipsizeMode="tail"
+      >
+        {children}
+      </Text>
+    </View>
   );
 };
+
+const styles = StyleSheet.create({
+  wrap: {
+    flex: 1,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 0,
+  },
+});
 
 export default HeaderTitle;

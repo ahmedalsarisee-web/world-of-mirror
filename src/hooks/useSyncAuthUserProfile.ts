@@ -1,6 +1,7 @@
 import {useEffect} from 'react';
-import {subscribeToUser} from '@app/services/users.service';
+import {isArchivedEmployee, subscribeToUser} from '@app/services/users.service';
 import {useAuthStore} from '@app/stores/authStore';
+import {writeCachedAuthProfile} from '@app/utils/authProfileCache';
 
 /** Keeps auth store profile in sync (permissions, balance, etc.) while the user is signed in. */
 export function useSyncAuthUserProfile(): void {
@@ -15,6 +16,12 @@ export function useSyncAuthUserProfile(): void {
       if (!profile) {
         return;
       }
+
+      if (isArchivedEmployee(profile)) {
+        void useAuthStore.getState().logout().catch(() => undefined);
+        return;
+      }
+
       useAuthStore.setState((state) => {
         const current = state.user;
         if (!current || current.id !== profile.id) {
@@ -33,10 +40,22 @@ export function useSyncAuthUserProfile(): void {
           current.balance === profile.balance &&
           current.name === profile.name;
 
-        if (permissionsUnchanged && adminPermissionsUnchanged && attendanceMetaUnchanged) {
+        const profileMetaUnchanged =
+          JSON.stringify(current.delegatedFinanceLedgerAccess ?? null) ===
+            JSON.stringify(profile.delegatedFinanceLedgerAccess ?? null) &&
+          JSON.stringify(current.financeLedgers ?? null) ===
+            JSON.stringify(profile.financeLedgers ?? null);
+
+        if (
+          permissionsUnchanged &&
+          adminPermissionsUnchanged &&
+          attendanceMetaUnchanged &&
+          profileMetaUnchanged
+        ) {
           return state;
         }
 
+        void writeCachedAuthProfile(profile).catch(() => undefined);
         return {user: profile};
       });
     });

@@ -3,12 +3,16 @@ import {ActivityIndicator, Pressable, StyleSheet, type ViewStyle} from 'react-na
 import {MaterialCommunityIcons} from '@expo/vector-icons';
 import {useTheme} from '@app/context/ThemeContext';
 
+type ExportIconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+
 interface Props {
   onPress: () => void;
   loading?: boolean;
   disabled?: boolean;
   size?: number;
   style?: ViewStyle;
+  iconName?: ExportIconName;
+  accessibilityLabel?: string;
 }
 
 const AccountStatementExportButton: React.FC<Props> = ({
@@ -17,6 +21,8 @@ const AccountStatementExportButton: React.FC<Props> = ({
   disabled = false,
   size = 22,
   style,
+  iconName = 'file-pdf-box',
+  accessibilityLabel = 'export account statement pdf',
 }) => {
   const {theme} = useTheme();
 
@@ -41,12 +47,12 @@ const AccountStatementExportButton: React.FC<Props> = ({
       onPress={onPress}
       disabled={disabled || loading}
       accessibilityRole="button"
-      accessibilityLabel="export account statement pdf"
+      accessibilityLabel={accessibilityLabel}
     >
       {loading ? (
         <ActivityIndicator size="small" color={theme.colors.primary} />
       ) : (
-        <MaterialCommunityIcons name="file-pdf-box" size={size} color={theme.colors.primary} />
+        <MaterialCommunityIcons name={iconName} size={size} color={theme.colors.primary} />
       )}
     </Pressable>
   );

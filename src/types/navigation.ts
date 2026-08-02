@@ -1,4 +1,5 @@
 import type {NavigatorScreenParams} from '@react-navigation/native';
+import type {MirrorPricingOrderStatus} from '@app/types/mirrorPricingOrderStatus';
 
 export type RootStackParamList = {
   Auth: undefined;
@@ -30,25 +31,55 @@ export type DashboardStackParamList = {
 
 export type FinanceStackParamList = {
   FinanceHome: undefined;
-  EmployeeAccount: {userId: string; userName: string};
-  EmployeeAdvance: {userId: string; userName: string};
+  EmployeeAccount: {
+    userId: string;
+    userName: string;
+    card?: 'cash';
+    focusTransactionId?: string;
+    focusToken?: number;
+  };
+  EmployeeAdvance: {userId: string; userName: string; focusTransactionId?: string; focusToken?: number};
   EmployeeCustomLedger: {
     userId: string;
     userName: string;
     ledgerId: string;
     ledgerName: string;
     ledgerColor?: string;
+    focusTransactionId?: string;
+    focusToken?: number;
   };
 };
 
 export type AttendanceStackParamList = {
   MyAttendance: undefined;
+  TeamAttendanceList: undefined;
+  EmployeeAttendanceView: {userId: string; userName: string};
 };
 
 export type PricingStackParamList = {
   OrdersHome: undefined;
-  MirrorPricing: undefined;
-  ConfirmedOrders: undefined;
+  AddOrder: {ordersHomeCardId?: string} | undefined;
+  MirrorPricingPriceList: undefined;
+  MirrorWarehouse: undefined;
+  ConfirmedOrders: {focusOrderId?: string; focusToken?: number; ordersHomeCardId?: string} | undefined;
+  CompletedOrdersArchive: {
+    focusOrderId?: string;
+    focusToken?: number;
+    outstandingOnly?: boolean;
+    ordersHomeCardId?: string;
+  } | undefined;
+  OrdersByStatus: {
+    status: MirrorPricingOrderStatus;
+    focusOrderId?: string;
+    focusToken?: number;
+    outstandingOnly?: boolean;
+    ordersHomeCardId?: string;
+  };
+  CustomOrdersCard: {
+    ordersHomeCardId: string;
+    focusOrderId?: string;
+    focusToken?: number;
+  };
 };
 
 export type EmployeeManagementStackParamList = {
@@ -58,6 +89,7 @@ export type EmployeeManagementStackParamList = {
   EmployeeAttendance: {userId: string; userName: string};
   EmployeeLocation: {userId: string; userName: string};
   EmployeeAttendanceReset: {userId: string; userName: string};
+  EmployeeAttendanceShiftHours: {userId: string; userName: string};
   AdminDetail: {userId: string; userName: string};
   UserForm: undefined;
 };

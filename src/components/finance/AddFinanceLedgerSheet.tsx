@@ -24,6 +24,7 @@ interface Props {
   initialName?: string;
   saving?: boolean;
   visibilityUsers?: AppUser[];
+  showVisibilityPicker?: boolean;
   onClose: () => void;
   onSave: (name: string, visibleToUserIds?: string[]) => void | Promise<void>;
 }
@@ -34,6 +35,7 @@ const AddFinanceLedgerSheet: React.FC<Props> = ({
   initialName = '',
   saving = false,
   visibilityUsers = [],
+  showVisibilityPicker = true,
   onClose,
   onSave,
 }) => {
@@ -72,7 +74,7 @@ const AddFinanceLedgerSheet: React.FC<Props> = ({
           />
         )}
       />
-      {mode === 'add' ? (
+      {mode === 'add' && showVisibilityPicker ? (
         <FinanceLedgerVisibilityPicker
           users={visibilityUsers}
           selectedIds={selectedViewerIds}

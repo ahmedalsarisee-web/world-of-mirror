@@ -12,6 +12,7 @@ interface Props {
   icon?: IconName;
   iconColor?: string;
   iconBackground?: string;
+  compact?: boolean;
   children: React.ReactNode;
 }
 
@@ -21,6 +22,7 @@ const DashboardSection: React.FC<Props> = ({
   icon,
   iconColor,
   iconBackground,
+  compact = false,
   children,
 }) => {
   const {theme} = useTheme();
@@ -32,19 +34,19 @@ const DashboardSection: React.FC<Props> = ({
     () =>
       StyleSheet.create({
         root: {
-          marginBottom: theme.spacing.lg,
-          gap: theme.spacing.sm,
+          marginBottom: compact ? theme.spacing.sm : theme.spacing.lg,
+          gap: compact ? theme.spacing.xs : theme.spacing.sm,
         },
         header: {
           flexDirection: row,
           alignItems: 'center',
-          gap: theme.spacing.sm,
+          gap: compact ? theme.spacing.xs : theme.spacing.sm,
           paddingHorizontal: 2,
         },
         iconWrap: {
-          width: 36,
-          height: 36,
-          borderRadius: 12,
+          width: compact ? 28 : 36,
+          height: compact ? 28 : 36,
+          borderRadius: compact ? 8 : 12,
           alignItems: 'center',
           justifyContent: 'center',
         },
@@ -53,7 +55,7 @@ const DashboardSection: React.FC<Props> = ({
           minWidth: 0,
         },
         title: {
-          fontSize: theme.typographyScale.size.md,
+          fontSize: compact ? theme.typographyScale.size.sm : theme.typographyScale.size.md,
           fontWeight: '800',
         },
         subtitle: {
@@ -62,7 +64,7 @@ const DashboardSection: React.FC<Props> = ({
           lineHeight: 16,
         },
       }),
-    [row, theme],
+    [compact, row, theme],
   );
 
   return (
@@ -70,12 +72,12 @@ const DashboardSection: React.FC<Props> = ({
       <View style={[styles.header, layoutStyle]}>
         {icon ? (
           <View style={[styles.iconWrap, {backgroundColor: iconBg}]}>
-            <MaterialCommunityIcons name={icon} size={18} color={accent} />
+            <MaterialCommunityIcons name={icon} size={compact ? 15 : 18} color={accent} />
           </View>
         ) : null}
         <View style={styles.headerText}>
           <Text style={[styles.title, textStyle, {color: theme.typography.primary}]}>{title}</Text>
-          {subtitle ? (
+          {!compact && subtitle ? (
             <Text style={[styles.subtitle, textStyle, {color: theme.typography.secondary}]} numberOfLines={2}>
               {subtitle}
             </Text>

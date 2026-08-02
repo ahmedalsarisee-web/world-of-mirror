@@ -69,7 +69,10 @@ export function useAttendanceLocationAction({
 
       setActionLoading(true);
       try {
-        if (type === 'check_in' && (requireLocationCheck || requireGpsLinked)) {
+        if (
+          (type === 'check_in' || type === 'check_out') &&
+          (requireLocationCheck || requireGpsLinked)
+        ) {
           let locationCheck: Awaited<ReturnType<typeof verifyCheckInLocationRequirements>>;
           try {
             locationCheck = await verifyCheckInLocationRequirements({

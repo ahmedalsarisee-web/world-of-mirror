@@ -12,9 +12,19 @@ interface Props {
   users: AppUser[];
   selectedIds: string[];
   onChange: (ids: string[]) => void;
+  labelKey?: string;
+  hintKey?: string;
+  emptyKey?: string;
 }
 
-const FinanceLedgerVisibilityPicker: React.FC<Props> = ({users, selectedIds, onChange}) => {
+const FinanceLedgerVisibilityPicker: React.FC<Props> = ({
+  users,
+  selectedIds,
+  onChange,
+  labelKey = 'financeLedgerVisibility',
+  hintKey = 'financeLedgerVisibilityHint',
+  emptyKey = 'financeLedgerVisibilityEmpty',
+}) => {
   const {t} = useTranslation();
   const {theme} = useTheme();
   const {textStyle, row, layoutStyle, inlineTextStyle, ltrTextStyle} = useDirection();
@@ -133,15 +143,15 @@ const FinanceLedgerVisibilityPicker: React.FC<Props> = ({users, selectedIds, onC
   return (
     <View style={styles.wrap}>
       <Text style={[styles.label, textStyle, {color: theme.typography.primary}]}>
-        {t('financeLedgerVisibility')}
+        {t(labelKey)}
       </Text>
       <Text style={[styles.hint, textStyle, {color: theme.typography.secondary}]}>
-        {t('financeLedgerVisibilityHint')}
+        {t(hintKey)}
       </Text>
 
       {users.length === 0 ? (
         <Text style={[styles.emptyText, textStyle, {color: theme.typography.secondary}]}>
-          {t('financeLedgerVisibilityEmpty')}
+          {t(emptyKey)}
         </Text>
       ) : (
         <>

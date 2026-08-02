@@ -1,12 +1,13 @@
 import React, {useMemo} from 'react';
-import {Pressable, StyleSheet, Text, View} from 'react-native';
-import {MaterialCommunityIcons} from '@expo/vector-icons';
+import {StyleSheet, Text, View} from 'react-native';
 import {useTranslation} from 'react-i18next';
-import FinanceGroupedListCard from '@app/components/finance/FinanceGroupedListCard';
+import {FinanceCardOverflowButton} from '@app/components/finance/FinanceCardOverflowMenu';
 import FinanceListRow from '@app/components/finance/FinanceListRow';
 import {useDirection} from '@app/hooks/useDirection';
 import {useTheme} from '@app/context/ThemeContext';
+import {getFinanceCardFrameStyle} from '@app/utils/financeCardFrame';
 import {formatRelativeTime, getNameInitials} from '@app/utils/format';
+import {getListCardStyle} from '@shared/theme/themeHelpers';
 
 export interface FinanceCustomLedgerListItem {
   id: string;
@@ -18,7 +19,8 @@ export interface FinanceCustomLedgerListItem {
   ownerName?: string;
   ownerRole?: 'admin' | 'employee';
   viewOnly?: boolean;
-  onRename?: () => void;
+  badgeLabel?: string;
+  onOpenMenu?: () => void;
 }
 
 interface Props {
@@ -31,10 +33,17 @@ const FinanceCustomLedgersList: React.FC<Props> = ({items, currencyLabel, onSele
   const {t} = useTranslation();
   const {theme} = useTheme();
   const {inlineTextStyle} = useDirection();
+  const listCard = useMemo(
+    () => ({...getListCardStyle(theme), ...getFinanceCardFrameStyle(theme)}),
+    [theme],
+  );
 
   const styles = useMemo(
     () =>
       StyleSheet.create({
+        list: {
+          gap: theme.spacing.sm,
+        },
         roleBadge: {
           paddingHorizontal: 6,
           paddingVertical: 1,
@@ -49,10 +58,6 @@ const FinanceCustomLedgersList: React.FC<Props> = ({items, currencyLabel, onSele
           fontSize: 12,
           fontWeight: '700',
         },
-        renameBtn: {
-          padding: 2,
-          flexShrink: 0,
-        },
       }),
     [theme],
   );
@@ -62,8 +67,8 @@ const FinanceCustomLedgersList: React.FC<Props> = ({items, currencyLabel, onSele
   }
 
   return (
-    <FinanceGroupedListCard>
-      {items.map((item, index) => {
+    <View style={styles.list}>
+      {items.map((item) => {
         const isOwnerAdmin = item.ownerRole === 'admin';
         const avatarBackground = item.ownerRole
           ? isOwnerAdmin
@@ -88,9 +93,8 @@ const FinanceCustomLedgersList: React.FC<Props> = ({items, currencyLabel, onSele
         }
 
         return (
+          <View key={item.id} style={listCard}>
           <FinanceListRow
-            key={item.id}
-            showDivider={index > 0}
             title={item.name}
             titleColor={theme.typography.primary}
             subtitle={metaParts.length > 0 ? metaParts.join(' · ') : undefined}
@@ -107,6 +111,24 @@ const FinanceCustomLedgersList: React.FC<Props> = ({items, currencyLabel, onSele
             }
             badges={
               <>
+                {item.badgeLabel ? (
+                  <View
+                    style={[
+                      styles.roleBadge,
+                      {backgroundColor: theme.colors.surfaceSecondary},
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.roleText,
+                        inlineTextStyle,
+                        {color: theme.typography.secondary},
+                      ]}
+                    >
+                      {item.badgeLabel}
+                    </Text>
+                  </View>
+                ) : null}
                 {item.ownerRole ? (
                   <View
                     style={[
@@ -131,24 +153,16 @@ const FinanceCustomLedgersList: React.FC<Props> = ({items, currencyLabel, onSele
                     </Text>
                   </View>
                 ) : null}
-                {item.onRename ? (
-                  <Pressable
-                    style={styles.renameBtn}
-                    onPress={(event) => {
-                      event.stopPropagation?.();
-                      item.onRename?.();
-                    }}
-                    hitSlop={8}
-                  >
-                    <MaterialCommunityIcons name="pencil-outline" size={14} color={theme.typography.secondary} />
-                  </Pressable>
-                ) : null}
               </>
             }
+            trailingAction={
+              item.onOpenMenu ? <FinanceCardOverflowButton onPress={item.onOpenMenu} /> : undefined
+            }
           />
+          </View>
         );
       })}
-    </FinanceGroupedListCard>
+    </View>
   );
 };
 

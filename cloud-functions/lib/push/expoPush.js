@@ -15,6 +15,7 @@ async function sendExpoPushToTokens(tokens, payload) {
             sound: 'default',
             title: payload.title,
             body: payload.body,
+            priority: 'high',
             data: payload.data ?? {},
             ...(payload.channelId ? { channelId: payload.channelId } : {}),
         }));

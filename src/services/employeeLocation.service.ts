@@ -15,5 +15,9 @@ export async function updateEmployeeLastLocation(
     return;
   }
 
-  await updateDoc(doc(getFirebaseDb(), USERS, userId), {lastLocation: location});
+  try {
+    await updateDoc(doc(getFirebaseDb(), USERS, userId), {lastLocation: location});
+  } catch {
+    // Ignore permission errors during logout teardown.
+  }
 }

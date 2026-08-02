@@ -1,7 +1,7 @@
 import React, {memo, useEffect, useState} from 'react';
 import {Text, type TextProps, type TextStyle} from 'react-native';
-import type {AttendanceRecord} from '@app/types/models';
-import {formatAttendanceDuration, getOpenSessionElapsedSeconds} from '@app/utils/attendanceReport';
+import type {AttendanceEventType, AttendanceRecord} from '@app/types/models';
+import {formatAttendanceDuration, getOpenSessionElapsedSeconds, hasOpenAttendanceToday} from '@app/utils/attendanceReport';
 
 interface Props extends TextProps {
   baseSeconds: number;
@@ -18,11 +18,11 @@ const LiveAttendanceDurationText: React.FC<Props> = ({baseSeconds, records, styl
   useEffect(() => {
     const sync = () => setElapsed(getOpenSessionElapsedSeconds(records));
     sync();
-    if (getOpenSessionElapsedSeconds(records) <= 0) {
+    if (!hasOpenAttendanceToday(records)) {
       return;
     }
 
-    const timer = setInterval(sync, 5000);
+    const timer = setInterval(sync, 1000);
     return () => clearInterval(timer);
   }, [records]);
 

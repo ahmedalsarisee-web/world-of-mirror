@@ -144,8 +144,14 @@ export function getSaveErrorMessage(error: unknown): string {
     if (error.message.includes('storage/unauthorized') || error.message.includes('403')) {
       return 'Storage permission denied. Publish Storage rules in Firebase Console.';
     }
-    if (error.message.includes('permission-denied')) {
-      return 'Firestore permission denied. Check Firestore rules and login.';
+    if (
+      error.message.includes('permission-denied') ||
+      error.message.includes('Missing or insufficient permissions')
+    ) {
+      return 'Firestore permission denied. Run: firebase deploy --only firestore:rules';
+    }
+    if (error.message.includes('You must be logged in')) {
+      return error.message;
     }
     return error.message;
   }

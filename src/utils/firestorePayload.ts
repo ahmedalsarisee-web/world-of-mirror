@@ -1,6 +1,14 @@
 /** Firestore rejects `undefined` field values — strip them before writes. */
+function isFirestoreFieldValue(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && '_methodName' in value;
+}
+
 export function toFirestoreSafePayload<T>(value: T): T {
   if (value === undefined) {
+    return value;
+  }
+
+  if (isFirestoreFieldValue(value)) {
     return value;
   }
 

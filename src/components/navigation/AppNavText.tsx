@@ -41,12 +41,18 @@ export const NavHeaderTitle: React.FC<Props> = ({children, color, style}) => {
   return (
     <Text
       allowFontScaling={false}
-      numberOfLines={1}
+      numberOfLines={2}
+      adjustsFontSizeToFit
+      minimumFontScale={0.75}
+      ellipsizeMode="tail"
       style={[
         appFont(language, 'bold'),
         {
           color,
-          fontSize: 22,
+          fontSize: 17,
+          lineHeight: 22,
+          textAlign: 'center',
+          width: '100%',
           ...(Platform.OS === 'android' ? {includeFontPadding: false} : null),
         },
         style,

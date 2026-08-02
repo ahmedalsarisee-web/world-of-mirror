@@ -2,24 +2,46 @@ import {getFirestore} from 'firebase-admin/firestore';
 
 const db = getFirestore();
 
-export async function getAdminExpoPushTokens(): Promise<string[]> {
-  const adminsSnap = await db.collection('users').where('role', '==', 'admin').get();
+function collectTokensFromUserDoc(data: FirebaseFirestore.DocumentData | undefined): string[] {
+  const expoPushTokens = data?.expoPushTokens;
+  if (!Array.isArray(expoPushTokens)) {
+    return [];
+  }
+
+  return expoPushTokens
+    .filter((token): token is string => typeof token === 'string' && token.trim().length > 0)
+    .map((token) => token.trim());
+}
+
+function canReceiveSharedNotifications(data: FirebaseFirestore.DocumentData | undefined): boolean {
+  if (!data) {
+    return false;
+  }
+  return data.role === 'admin' || data.role === 'employee';
+}
+
+/** Push tokens for all admins and employees (shared notification feed). */
+export async function getNotificationViewerExpoPushTokens(): Promise<string[]> {
+  const usersSnap = await db.collection('users').get();
   const tokens = new Set<string>();
 
-  for (const adminDoc of adminsSnap.docs) {
-    const expoPushTokens = adminDoc.data().expoPushTokens;
-    if (!Array.isArray(expoPushTokens)) {
+  for (const userDoc of usersSnap.docs) {
+    const data = userDoc.data();
+    if (!canReceiveSharedNotifications(data)) {
       continue;
     }
 
-    for (const token of expoPushTokens) {
-      if (typeof token === 'string' && token.trim()) {
-        tokens.add(token.trim());
-      }
+    for (const token of collectTokensFromUserDoc(data)) {
+      tokens.add(token);
     }
   }
 
   return [...tokens];
+}
+
+/** @deprecated Use getNotificationViewerExpoPushTokens */
+export async function getAdminExpoPushTokens(): Promise<string[]> {
+  return getNotificationViewerExpoPushTokens();
 }
 
 export async function getUserDisplayName(userId: string): Promise<string> {

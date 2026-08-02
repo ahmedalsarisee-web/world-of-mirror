@@ -1,11 +1,14 @@
 import React, {useEffect, useMemo, useState} from 'react';
-import {Pressable, StyleSheet, Text, View} from 'react-native';
+import {StyleSheet, Text, View} from 'react-native';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import type {RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {MaterialCommunityIcons} from '@expo/vector-icons';
 import {useTranslation} from 'react-i18next';
-import ScreenContainer from '@app/components/common/ScreenContainer';
+import DashboardShortcutGrid, {
+  type DashboardShortcut,
+} from '@app/components/dashboard/DashboardShortcutGrid';
+import EmployeeManagementScreenLayout from '@app/components/employee-management/EmployeeManagementScreenLayout';
 import {useDirection} from '@app/hooks/useDirection';
 import {useTheme} from '@app/context/ThemeContext';
 import {subscribeToUser} from '@app/services/users.service';
@@ -14,7 +17,6 @@ import type {AppUser} from '@app/types/models';
 import type {EmployeeManagementStackParamList} from '@app/types/navigation';
 import {formatPermissionSummary, resolveEmployeePermissions} from '@app/utils/employeePermissions';
 import {formatEmployeeLocationUpdatedAt} from '@app/utils/employeeLocationDisplay';
-import {getListCardStyle} from '@shared/theme/themeHelpers';
 
 type Route = RouteProp<EmployeeManagementStackParamList, 'EmployeeDetail'>;
 type Nav = NativeStackNavigationProp<EmployeeManagementStackParamList, 'EmployeeDetail'>;
@@ -22,32 +24,40 @@ type Nav = NativeStackNavigationProp<EmployeeManagementStackParamList, 'Employee
 const EmployeeDetailScreen: React.FC = () => {
   const {t} = useTranslation();
   const {theme} = useTheme();
-  const {textStyle, row, chevronForward, layoutStyle} = useDirection();
+  const {textStyle, row, layoutStyle} = useDirection();
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
   const {userId, userName} = route.params;
+
   const currentUser = useAuthStore((s) => s.user);
   const isAdmin = currentUser?.role === 'admin';
   const [employee, setEmployee] = useState<AppUser | null>(null);
-  const listCard = useMemo(() => getListCardStyle(theme), [theme]);
+  const screenTitle = employee?.name ?? userName;
 
   const styles = useMemo(
     () =>
       StyleSheet.create({
-        title: {fontSize: 22, fontWeight: '700', marginBottom: 20},
-        card: {
+        sectionHeader: {
           flexDirection: row,
           alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: 16,
-          marginBottom: 10,
-          gap: 8,
+          gap: theme.spacing.sm,
+          marginBottom: theme.spacing.sm,
+          paddingHorizontal: 2,
         },
-        textWrap: {flex: 1},
-        cardTitle: {fontSize: 16, fontWeight: '600', marginBottom: 4},
-        cardSubtitle: {fontSize: 13, lineHeight: 18},
+        sectionIconWrap: {
+          width: 32,
+          height: 32,
+          borderRadius: 10,
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
+        sectionTitle: {
+          flex: 1,
+          fontSize: theme.typographyScale.size.md,
+          fontWeight: '700',
+        },
       }),
-    [row],
+    [row, theme],
   );
 
   useEffect(() => {
@@ -60,67 +70,72 @@ const EmployeeDetailScreen: React.FC = () => {
     return subscribeToUser(userId, setEmployee);
   }, [userId]);
 
+  const shortcuts = useMemo<DashboardShortcut[]>(() => {
+    if (!employee) {
+      return [];
+    }
+
+    const permissionSummary = formatPermissionSummary(resolveEmployeePermissions(employee), t);
+
+    return [
+      {
+        key: 'permissions',
+        icon: 'shield-account-outline',
+        iconColor: theme.colors.primary,
+        iconBackground: `${theme.colors.primary}18`,
+        accentColor: theme.colors.primary,
+        label: t('employeePermissions'),
+        description: permissionSummary,
+        onPress: () => navigation.navigate('EmployeePermissions', {userId, userName: screenTitle}),
+      },
+      {
+        key: 'location',
+        icon: 'map-marker-radius-outline',
+        iconColor: theme.colors.warning,
+        iconBackground: theme.colors.dangerLight,
+        accentColor: theme.colors.warning,
+        label: t('employeeLocation'),
+        description: formatEmployeeLocationUpdatedAt(employee.lastLocation, t),
+        onPress: () => navigation.navigate('EmployeeLocation', {userId, userName: screenTitle}),
+      },
+      {
+        key: 'attendance',
+        icon: 'calendar-clock-outline',
+        iconColor: theme.colors.success,
+        iconBackground: theme.colors.successLight,
+        accentColor: theme.colors.success,
+        label: t('employeeAttendance'),
+        description: t('employeeAttendanceHint'),
+        onPress: () => navigation.navigate('EmployeeAttendance', {userId, userName: screenTitle}),
+      },
+    ];
+  }, [employee, navigation, screenTitle, t, theme, userId]);
+
   if (!isAdmin) {
     return null;
   }
 
   if (!employee) {
     return (
-      <ScreenContainer>
+      <EmployeeManagementScreenLayout title={screenTitle}>
         <Text style={[textStyle, {color: theme.typography.secondary}]}>{t('loading')}</Text>
-      </ScreenContainer>
+      </EmployeeManagementScreenLayout>
     );
   }
 
   return (
-    <ScreenContainer>
-      <Text style={[styles.title, textStyle, {color: theme.typography.primary}]}>{userName}</Text>
-
-      <Pressable
-        style={[styles.card, listCard, layoutStyle]}
-        onPress={() => navigation.navigate('EmployeePermissions', {userId, userName})}
-      >
-        <View style={styles.textWrap}>
-          <Text style={[styles.cardTitle, textStyle, {color: theme.typography.primary}]}>
-            {t('employeePermissions')}
-          </Text>
-          <Text style={[styles.cardSubtitle, textStyle, {color: theme.typography.secondary}]}>
-            {formatPermissionSummary(resolveEmployeePermissions(employee), t)}
-          </Text>
+    <EmployeeManagementScreenLayout title={screenTitle}>
+      <View style={[styles.sectionHeader, layoutStyle]}>
+        <View style={[styles.sectionIconWrap, {backgroundColor: `${theme.colors.primary}18`}]}>
+          <MaterialCommunityIcons name="view-grid-outline" size={18} color={theme.colors.primary} />
         </View>
-        <MaterialCommunityIcons name={chevronForward as any} size={22} color={theme.colors.icon} />
-      </Pressable>
+        <Text style={[styles.sectionTitle, textStyle, {color: theme.typography.primary}]}>
+          {t('employeeDetailSections')}
+        </Text>
+      </View>
 
-      <Pressable
-        style={[styles.card, listCard, layoutStyle]}
-        onPress={() => navigation.navigate('EmployeeLocation', {userId, userName})}
-      >
-        <View style={styles.textWrap}>
-          <Text style={[styles.cardTitle, textStyle, {color: theme.typography.primary}]}>
-            {t('employeeLocation')}
-          </Text>
-          <Text style={[styles.cardSubtitle, textStyle, {color: theme.typography.secondary}]}>
-            {formatEmployeeLocationUpdatedAt(employee.lastLocation, t)}
-          </Text>
-        </View>
-        <MaterialCommunityIcons name={chevronForward as any} size={22} color={theme.colors.icon} />
-      </Pressable>
-
-      <Pressable
-        style={[styles.card, listCard, layoutStyle]}
-        onPress={() => navigation.navigate('EmployeeAttendance', {userId, userName})}
-      >
-        <View style={styles.textWrap}>
-          <Text style={[styles.cardTitle, textStyle, {color: theme.typography.primary}]}>
-            {t('employeeAttendance')}
-          </Text>
-          <Text style={[styles.cardSubtitle, textStyle, {color: theme.typography.secondary}]}>
-            {t('employeeAttendanceHint')}
-          </Text>
-        </View>
-        <MaterialCommunityIcons name={chevronForward as any} size={22} color={theme.colors.icon} />
-      </Pressable>
-    </ScreenContainer>
+      <DashboardShortcutGrid shortcuts={shortcuts} />
+    </EmployeeManagementScreenLayout>
   );
 };
 

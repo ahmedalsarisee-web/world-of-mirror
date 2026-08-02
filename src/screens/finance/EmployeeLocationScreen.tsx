@@ -5,7 +5,7 @@ import type {RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {useTranslation} from 'react-i18next';
 import EmployeeLocationMapPanel from '@app/components/employee-management/EmployeeLocationMapPanel';
-import ScreenContainer from '@app/components/common/ScreenContainer';
+import EmployeeManagementScreenLayout from '@app/components/employee-management/EmployeeManagementScreenLayout';
 import {useDirection} from '@app/hooks/useDirection';
 import {useTheme} from '@app/context/ThemeContext';
 import {subscribeToUser} from '@app/services/users.service';
@@ -22,9 +22,12 @@ const EmployeeLocationScreen: React.FC = () => {
   const {textStyle} = useDirection();
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
+  const {userId, userName} = route.params;
+
   const currentUser = useAuthStore((s) => s.user);
   const isAdmin = currentUser?.role === 'admin';
   const [employee, setEmployee] = useState<AppUser | null>(null);
+  const screenTitle = employee?.name ?? userName;
 
   useEffect(() => {
     if (!isAdmin) {
@@ -33,8 +36,8 @@ const EmployeeLocationScreen: React.FC = () => {
   }, [isAdmin, navigation]);
 
   useEffect(() => {
-    return subscribeToUser(route.params.userId, setEmployee);
-  }, [route.params.userId]);
+    return subscribeToUser(userId, setEmployee);
+  }, [userId]);
 
   if (!isAdmin) {
     return null;
@@ -42,16 +45,16 @@ const EmployeeLocationScreen: React.FC = () => {
 
   if (!employee) {
     return (
-      <ScreenContainer>
+      <EmployeeManagementScreenLayout title={screenTitle} scroll={false}>
         <Text style={[textStyle, {color: theme.typography.secondary}]}>{t('loading')}</Text>
-      </ScreenContainer>
+      </EmployeeManagementScreenLayout>
     );
   }
 
   return (
-    <ScreenContainer scroll={false}>
-      <EmployeeLocationMapPanel employeeName={route.params.userName} location={employee.lastLocation} />
-    </ScreenContainer>
+    <EmployeeManagementScreenLayout title={screenTitle} scroll={false}>
+      <EmployeeLocationMapPanel employeeName={screenTitle} location={employee.lastLocation} />
+    </EmployeeManagementScreenLayout>
   );
 };
 

@@ -7,7 +7,7 @@ import {MaterialCommunityIcons} from '@expo/vector-icons';
 import {useTranslation} from 'react-i18next';
 import AppButton from '@app/components/common/AppButton';
 import LoadingOverlay from '@app/components/common/LoadingOverlay';
-import ScreenContainer from '@app/components/common/ScreenContainer';
+import EmployeeManagementScreenLayout from '@app/components/employee-management/EmployeeManagementScreenLayout';
 import {useDirection} from '@app/hooks/useDirection';
 import {useTheme} from '@app/context/ThemeContext';
 import {deleteUser, subscribeToUser, updateEmployeePermissions} from '@app/services/users.service';
@@ -28,8 +28,15 @@ const PERMISSION_OPTIONS: {
   icon: string;
 }[] = [
   {field: 'finance', labelKey: 'permissionFinance', icon: 'cash-multiple'},
+  {field: 'editFinanceTransactions', labelKey: 'permissionEditFinanceTransactions', icon: 'pencil-outline'},
+  {field: 'employeeFinance', labelKey: 'permissionEmployeeFinance', icon: 'account-cash'},
+  {field: 'employeeAttendance', labelKey: 'permissionEmployeeAttendance', icon: 'account-group'},
   {field: 'attendanceLocationRequired', labelKey: 'permissionAttendanceLocation', icon: 'map-marker-radius'},
   {field: 'attendanceGpsLinked', labelKey: 'permissionAttendanceGpsLinked', icon: 'crosshairs-gps'},
+  {field: 'moveOrders', labelKey: 'permissionMoveOrders', icon: 'swap-horizontal'},
+  {field: 'deleteOrders', labelKey: 'permissionDeleteOrders', icon: 'trash-can-outline'},
+  {field: 'orderCardNotes', labelKey: 'permissionOrderCardNotes', icon: 'note-text-outline'},
+  {field: 'showNotificationsIcon', labelKey: 'permissionShowNotificationsIcon', icon: 'bell-outline'},
 ];
 
 const EmployeePermissionsScreen: React.FC = () => {
@@ -38,6 +45,8 @@ const EmployeePermissionsScreen: React.FC = () => {
   const {textStyle, row, layoutStyle} = useDirection();
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
+  const {userId, userName} = route.params;
+
   const currentUser = useAuthStore((s) => s.user);
   const authEmail = useAuthStore((s) => s.authEmail);
   const isAdmin = currentUser?.role === 'admin';
@@ -45,12 +54,12 @@ const EmployeePermissionsScreen: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [isEmployee, setIsEmployee] = useState(false);
   const [targetUser, setTargetUser] = useState<AppUser | null>(null);
+  const screenTitle = targetUser?.name ?? userName;
   const listCard = useMemo(() => getListCardStyle(theme), [theme]);
 
   const styles = useMemo(
     () =>
       StyleSheet.create({
-        title: {fontSize: 22, fontWeight: '700', marginBottom: 4},
         subtitle: {fontSize: 14, marginBottom: 20, lineHeight: 20},
         sectionTitle: {fontSize: 16, fontWeight: '600', marginBottom: 12},
         row: {
@@ -75,7 +84,7 @@ const EmployeePermissionsScreen: React.FC = () => {
   }, [isAdmin, navigation]);
 
   useEffect(() => {
-    const unsub = subscribeToUser(route.params.userId, (user) => {
+    const unsub = subscribeToUser(userId, (user) => {
       setTargetUser(user);
       if (!user || user.role !== 'employee') {
         setIsEmployee(false);
@@ -85,13 +94,13 @@ const EmployeePermissionsScreen: React.FC = () => {
       setPermissions(resolveEmployeePermissions(user));
     });
     return unsub;
-  }, [route.params.userId]);
+  }, [userId]);
 
   const persistPermissions = async (next: EmployeePermissions) => {
     setPermissions(next);
     setLoading(true);
     try {
-      await updateEmployeePermissions(route.params.userId, next);
+      await updateEmployeePermissions(userId, next);
     } catch {
       Alert.alert(t('error'), t('saveFailed'));
     } finally {
@@ -109,7 +118,7 @@ const EmployeePermissionsScreen: React.FC = () => {
       return;
     }
 
-    Alert.alert(t('deleteEmployee'), t('deleteEmployeeConfirm', {name: route.params.userName}), [
+    Alert.alert(t('deleteEmployee'), t('deleteEmployeeConfirm', {name: screenTitle}), [
       {text: t('cancel'), style: 'cancel'},
       {
         text: t('delete'),
@@ -118,7 +127,7 @@ const EmployeePermissionsScreen: React.FC = () => {
           void (async () => {
             setLoading(true);
             try {
-              await deleteUser(route.params.userId);
+              await deleteUser(userId);
               Alert.alert(t('employeeDeleted'));
               navigation.popToTop();
             } catch (error) {
@@ -138,16 +147,15 @@ const EmployeePermissionsScreen: React.FC = () => {
 
   if (!isEmployee) {
     return (
-      <ScreenContainer>
+      <EmployeeManagementScreenLayout title={screenTitle}>
         <Text style={[textStyle, {color: theme.typography.secondary}]}>{t('loading')}</Text>
-      </ScreenContainer>
+      </EmployeeManagementScreenLayout>
     );
   }
 
   return (
     <>
-      <ScreenContainer>
-        <Text style={[styles.title, textStyle, {color: theme.typography.primary}]}>{route.params.userName}</Text>
+      <EmployeeManagementScreenLayout title={screenTitle}>
         <Text style={[styles.subtitle, textStyle, {color: theme.typography.secondary}]}>
           {t('employeePermissionsHint')}
         </Text>
@@ -180,7 +188,7 @@ const EmployeePermissionsScreen: React.FC = () => {
           style={styles.deleteBtn}
           disabled={!targetUser || !canDeleteUser(currentUser, targetUser, authEmail)}
         />
-      </ScreenContainer>
+      </EmployeeManagementScreenLayout>
       <LoadingOverlay visible={loading} />
     </>
   );

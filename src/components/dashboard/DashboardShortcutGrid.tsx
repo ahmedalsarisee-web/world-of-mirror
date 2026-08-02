@@ -20,11 +20,13 @@ export interface DashboardShortcut {
 
 interface Props {
   shortcuts: DashboardShortcut[];
+  variant?: 'list' | 'grid';
 }
 
-const DashboardShortcutGrid: React.FC<Props> = ({shortcuts}) => {
+const DashboardShortcutGrid: React.FC<Props> = ({shortcuts, variant = 'list'}) => {
   const {theme} = useTheme();
-  const {textStyle, row, layoutStyle, chevronForward} = useDirection();
+  const {textStyle, row, layoutStyle, chevronForward, centeredTextStyle} = useDirection();
+  const isGrid = variant === 'grid';
   const listCard = useMemo(() => getListCardStyle(theme), [theme]);
 
   const styles = useMemo(
@@ -68,9 +70,69 @@ const DashboardShortcutGrid: React.FC<Props> = ({shortcuts}) => {
           justifyContent: 'center',
           backgroundColor: theme.colors.surfaceSecondary,
         },
+        grid: {
+          flexDirection: row,
+          flexWrap: 'wrap',
+          gap: theme.spacing.sm,
+        },
+        gridItem: {
+          flexGrow: 1,
+          flexBasis: shortcuts.length > 2 ? '30%' : '46%',
+          minWidth: shortcuts.length === 1 ? '100%' : 96,
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingVertical: theme.spacing.md,
+          paddingHorizontal: theme.spacing.sm,
+          gap: theme.spacing.xs,
+          borderTopWidth: 3,
+        },
+        gridIconWrap: {
+          width: 44,
+          height: 44,
+          borderRadius: 14,
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
+        gridLabel: {
+          fontSize: theme.typographyScale.size.xs,
+          fontWeight: '700',
+          textAlign: 'center',
+        },
       }),
-    [row, theme],
+    [row, shortcuts.length, theme],
   );
+
+  if (isGrid) {
+    return (
+      <View style={[styles.grid, layoutStyle]}>
+        {shortcuts.map((shortcut) => (
+          <Pressable
+            key={shortcut.key}
+            style={({pressed}) => [
+              listCard,
+              styles.gridItem,
+              {
+                opacity: pressed ? 0.82 : 1,
+                borderTopColor: shortcut.accentColor ?? shortcut.iconColor,
+                backgroundColor: theme.colors.surface,
+              },
+            ]}
+            onPress={shortcut.onPress}
+          >
+            <View style={[styles.gridIconWrap, {backgroundColor: shortcut.iconBackground}]}>
+              <MaterialCommunityIcons name={shortcut.icon} size={22} color={shortcut.iconColor} />
+            </View>
+            <Text
+              style={[styles.gridLabel, centeredTextStyle, {color: theme.typography.primary}]}
+              numberOfLines={2}
+            >
+              {shortcut.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.list}>

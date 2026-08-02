@@ -12,13 +12,16 @@ interface Props {
   state: AttendanceLocationPermissionState;
   onRequestPermission: () => void;
   loading?: boolean;
+  variant?: 'default' | 'compact';
 }
 
 const AttendanceLocationPermissionCard: React.FC<Props> = ({
   state,
   onRequestPermission,
   loading = false,
+  variant = 'default',
 }) => {
+  const isCompact = variant === 'compact';
   const {t} = useTranslation();
   const {theme} = useTheme();
   const {textStyle, row, layoutStyle, centeredTextStyle} = useDirection();
@@ -28,9 +31,9 @@ const AttendanceLocationPermissionCard: React.FC<Props> = ({
     () =>
       StyleSheet.create({
         card: {
-          padding: theme.spacing.md,
-          marginBottom: theme.spacing.sm,
-          gap: theme.spacing.sm,
+          padding: isCompact ? theme.spacing.sm : theme.spacing.md,
+          marginBottom: isCompact ? theme.spacing.xs : theme.spacing.sm,
+          gap: isCompact ? theme.spacing.xs : theme.spacing.sm,
         },
         header: {
           flexDirection: row,
@@ -44,10 +47,10 @@ const AttendanceLocationPermissionCard: React.FC<Props> = ({
         },
         message: {
           fontSize: theme.typographyScale.size.xs,
-          lineHeight: 18,
+          lineHeight: isCompact ? 15 : 18,
         },
       }),
-    [row, theme],
+    [isCompact, row, theme],
   );
 
   if (state === 'granted') {
@@ -63,17 +66,20 @@ const AttendanceLocationPermissionCard: React.FC<Props> = ({
   return (
     <View style={[styles.card, listCard, layoutStyle]}>
       <View style={styles.header}>
-        <MaterialCommunityIcons name="map-marker-radius" size={22} color={theme.colors.primary} />
-        <Text style={[styles.title, textStyle, {color: theme.typography.primary}]}>
+        <MaterialCommunityIcons name="map-marker-radius" size={isCompact ? 18 : 22} color={theme.colors.primary} />
+        <Text style={[styles.title, textStyle, {color: theme.typography.primary}]} numberOfLines={isCompact ? 1 : 2}>
           {t('attendanceLocationPermissionPromptTitle')}
         </Text>
       </View>
-      <Text style={[styles.message, textStyle, centeredTextStyle, {color: theme.typography.secondary}]}>
+      <Text
+        style={[styles.message, textStyle, centeredTextStyle, {color: theme.typography.secondary}]}
+        numberOfLines={isCompact ? 2 : 4}
+      >
         {message}
       </Text>
       <AppButton
         label={actionLabel}
-        variant="primary"
+        variant={isCompact ? 'outline' : 'primary'}
         onPress={onRequestPermission}
         loading={loading}
         disabled={loading}

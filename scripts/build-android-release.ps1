@@ -45,14 +45,9 @@ if (-not (Import-DotEnvFile $envFile)) {
   }
   Write-Host "Loaded Firebase config from .env for release bundle."
 }
-$nodeDir = "C:\Program Files\nodejs"
+$env:NODE_ENV = "production"
 $javaHome = "C:\Program Files\Android\Android Studio\jbr"
 $gradleHome = "C:\gradle-home"
-
-if (Test-Path "$nodeDir\node.exe") {
-  $env:PATH = "$nodeDir;$env:PATH"
-  $env:NODE_BINARY = "$nodeDir\node.exe"
-}
 
 if (Test-Path "$javaHome\bin\java.exe") {
   $env:JAVA_HOME = $javaHome
@@ -60,6 +55,10 @@ if (Test-Path "$javaHome\bin\java.exe") {
 }
 
 & (Join-Path $PSScriptRoot "setup-android-windows.ps1")
+
+if (-not $env:NODE_BINARY) {
+  throw "Node.js was not configured. setup-android-windows.ps1 must set NODE_BINARY."
+}
 
 New-Item -ItemType Directory -Force -Path $gradleHome | Out-Null
 $env:GRADLE_USER_HOME = $gradleHome
@@ -102,6 +101,7 @@ Push-Location $androidDir
 try {
   Write-Host "Stopping old Gradle daemons..."
   & .\gradlew.bat --stop | Out-Null
+  Get-Process aapt2 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
   Write-Host "Generating native codegen..."
   & .\gradlew.bat generateCodegenArtifactsFromSchema --no-daemon
@@ -109,8 +109,12 @@ try {
     throw "Codegen failed with exit code $LASTEXITCODE"
   }
 
-  Write-Host "Building release APK..."
-  & .\gradlew.bat assembleRelease --no-daemon
+  Write-Host "Building release APK (ARM only, reduced native parallelism)..."
+  $env:ANDROID_NDK_PARALLEL = "4"
+  & .\gradlew.bat assembleRelease --no-daemon `
+    "-PreactNativeArchitectures=armeabi-v7a,arm64-v8a" `
+    "-Dorg.gradle.workers.max=4" `
+    "-Dorg.gradle.parallel=false"
   if ($LASTEXITCODE -ne 0) {
     throw "Gradle build failed with exit code $LASTEXITCODE"
   }

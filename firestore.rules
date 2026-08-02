@@ -5,41 +5,73 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function authUserRef() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function authUserExists() {
+      return isSignedIn() && exists(authUserRef());
+    }
+
     function userDoc() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return get(authUserRef()).data;
     }
 
     function isAdmin() {
-      return isSignedIn() && userDoc().role == 'admin';
+      return authUserExists() && userDoc().role == 'admin';
     }
 
     function isEmployee() {
-      return isSignedIn() && userDoc().role == 'employee';
+      return authUserExists() && userDoc().role == 'employee';
     }
 
     function isPrimaryAdmin() {
-      return isSignedIn() && userDoc().isPrimaryAdmin == true;
+      return authUserExists() && userDoc().isPrimaryAdmin == true;
     }
 
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function targetUserRef(userId) {
+      return /databases/$(database)/documents/users/$(userId);
+    }
+
+    function targetUserExists(userId) {
+      return exists(targetUserRef(userId));
+    }
+
     function targetUserDoc(userId) {
-      return get(/databases/$(database)/documents/users/$(userId)).data;
+      return get(targetUserRef(userId)).data;
+    }
+
+    function employeePermissions() {
+      let permissions = userDoc().get('permissions', {});
+      return permissions is map ? permissions : {};
+    }
+
+    function hasEmployeePermission(key) {
+      return isEmployee() && employeePermissions().get(key, false) == true;
+    }
+
+    function hasFinancePermission() {
+      return isEmployee() && employeePermissions().get('finance', true) == true;
     }
 
     function canReadUserDoc(userId) {
       return isSignedIn() && (
-        isAdmin()
-        || isOwner(userId)
-        || (isEmployee() && targetUserDoc(userId).role == 'admin')
+        isOwner(userId)
+        || isAdmin()
+        || (isEmployee() && targetUserExists(userId) && targetUserDoc(userId).role == 'admin')
+        || (hasEmployeePermission('employeeFinance') && targetUserExists(userId) && targetUserDoc(userId).role == 'employee')
+        || (hasEmployeePermission('employeeAttendance') && targetUserExists(userId) && targetUserDoc(userId).role == 'employee')
       );
     }
 
     function canDeleteUserDoc(userId) {
       return isAdmin()
         && request.auth.uid != userId
+        && targetUserExists(userId)
         && targetUserDoc(userId).isPrimaryAdmin != true
         && (
           targetUserDoc(userId).role != 'admin'
@@ -59,8 +91,65 @@ service cloud.firestore {
     function canAccessDelegatedLedgerTransaction(ownerId, ledgerId) {
       return isEmployee()
         && ledgerId != null
+        && targetUserExists(ownerId)
         && targetUserDoc(ownerId).role == 'admin'
         && hasDelegatedLedgerAccess(ownerId, ledgerId);
+    }
+
+    function canViewNotificationsLog() {
+      return isSignedIn();
+    }
+
+    function isValidNotificationEventCreate() {
+      return request.resource.data.keys().hasAll(['kind', 'title', 'body', 'sourceId', 'eventAt', 'recordedAt'])
+        && request.resource.data.kind in ['finance', 'attendance', 'confirmed_order', 'order_moved', 'order_updated', 'order_deleted', 'mirror_warehouse']
+        && request.resource.data.title is string
+        && request.resource.data.body is string
+        && request.resource.data.sourceId is string
+        && request.resource.data.eventAt is string
+        && request.resource.data.recordedAt is string;
+    }
+
+    function canCreateNotificationEvent() {
+      return isSignedIn() && isValidNotificationEventCreate() && (
+        isAdmin()
+        || request.resource.data.get('actorUserId', request.auth.uid) == request.auth.uid
+      );
+    }
+
+    function canReadNotificationEvent() {
+      return canViewNotificationsLog();
+    }
+
+    function canManageEmployeeFinanceAccount(employeeUserId) {
+      return hasEmployeePermission('employeeFinance')
+        && targetUserExists(employeeUserId)
+        && targetUserDoc(employeeUserId).role == 'employee'
+        && targetUserDoc(employeeUserId).get('archivedAt', '') == '';
+    }
+
+    function isArchivedEmployeeUser(userId) {
+      return targetUserExists(userId)
+        && targetUserDoc(userId).role == 'employee'
+        && targetUserDoc(userId).get('archivedAt', '') != '';
+    }
+
+    function canUpdateStoredBalance(userId) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance'])
+        && (
+          (isOwner(userId) && hasFinancePermission())
+          || canManageEmployeeFinanceAccount(userId)
+        );
+    }
+
+    function canModifyOwnFinanceTransaction() {
+      return isEmployee()
+        && resource.data.userId == request.auth.uid
+        && hasFinancePermission();
+    }
+
+    function canEmployeeFinanceManagerModifyTransaction() {
+      return canManageEmployeeFinanceAccount(resource.data.userId);
     }
 
     match /users/{userId} {
@@ -95,6 +184,8 @@ service cloud.firestore {
         && request.resource.data.lastLocation.latitude <= 90
         && request.resource.data.lastLocation.longitude >= -180
         && request.resource.data.lastLocation.longitude <= 180
+      ) || (
+        canUpdateStoredBalance(userId)
       );
       allow delete: if canDeleteUserDoc(userId);
     }
@@ -103,21 +194,37 @@ service cloud.firestore {
       allow read: if isSignedIn() && (
         isAdmin()
         || resource.data.userId == request.auth.uid
+        || canManageEmployeeFinanceAccount(resource.data.userId)
         || canAccessDelegatedLedgerTransaction(resource.data.userId, resource.data.ledgerId)
       );
-      allow create: if isSignedIn() && (
+      allow create: if isSignedIn()
+        && !isArchivedEmployeeUser(request.resource.data.userId)
+        && (
         isAdmin()
         || request.resource.data.userId == request.auth.uid
+        || canManageEmployeeFinanceAccount(request.resource.data.userId)
         || canAccessDelegatedLedgerTransaction(request.resource.data.userId, request.resource.data.ledgerId)
       );
-      allow update, delete: if isSignedIn() && (
+      allow update, delete: if isSignedIn()
+        && !isArchivedEmployeeUser(resource.data.userId)
+        && (
         isAdmin()
+        || canModifyOwnFinanceTransaction()
+        || canEmployeeFinanceManagerModifyTransaction()
         || canAccessDelegatedLedgerTransaction(resource.data.userId, resource.data.ledgerId)
       );
     }
 
     match /attendance/{recordId} {
-      allow read: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow read: if isSignedIn() && (
+        isAdmin()
+        || resource.data.userId == request.auth.uid
+        || (
+          hasEmployeePermission('employeeAttendance')
+          && targetUserExists(resource.data.userId)
+          && targetUserDoc(resource.data.userId).role == 'employee'
+        )
+      );
       allow create: if isSignedIn() && (isAdmin() || request.resource.data.userId == request.auth.uid);
       allow update, delete: if isAdmin();
     }
@@ -125,8 +232,42 @@ service cloud.firestore {
     match /mirrorConfirmedOrders/{orderId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn();
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || hasEmployeePermission('deleteOrders');
+      allow update: if isSignedIn();
+    }
+
+    match /mirrorOrderMeta/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /adminNotificationEvents/{eventId} {
+      allow read: if canReadNotificationEvent();
+      allow create: if canCreateNotificationEvent();
       allow update: if isAdmin();
+      allow delete: if isPrimaryAdmin();
+    }
+
+    match /mirrorWarehouse/{itemId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+
+    match /mirrorWarehouseMeta/{docId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+
+    match /mirrorCatalog/{imageId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+
+    match /mirrorCatalogMeta/{docId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
     }
 
     function isValidAttendanceWorkplaceData(data) {
@@ -154,11 +295,32 @@ service cloud.firestore {
         );
     }
 
+    function isValidOrdersHomeCardsData(data) {
+      return data.cards is list
+        && (
+          !('updatedAt' in data)
+          || data.updatedAt == null
+          || data.updatedAt is string
+        )
+        && (
+          !('updatedByUserId' in data)
+          || data.updatedByUserId == null
+          || data.updatedByUserId is string
+        );
+    }
+
     match /appSettings/{docId} {
       allow read: if isSignedIn();
       allow create, update: if isAdmin()
         && docId == 'attendanceWorkplace'
         && isValidAttendanceWorkplaceData(request.resource.data);
+      allow create, update: if isPrimaryAdmin()
+        && docId == 'ordersHomeCards'
+        && isValidOrdersHomeCardsData(request.resource.data);
+      allow create, update: if isPrimaryAdmin()
+        && docId == 'sharedNotifications'
+        && request.resource.data.clearedAt is string
+        && request.resource.data.clearedAt.size() > 0;
       allow delete: if false;
     }
   }

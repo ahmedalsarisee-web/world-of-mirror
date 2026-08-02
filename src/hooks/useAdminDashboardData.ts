@@ -1,17 +1,23 @@
 import {useMemo} from 'react';
-import {subscribeToAllAttendance} from '@app/services/attendance.service';
-import {subscribeToAllTransactions} from '@app/services/transactions.service';
-import {getEmployees, getFinanceAccounts, subscribeToUsers} from '@app/services/users.service';
-import type {AppUser, AttendanceRecord, Transaction} from '@app/types/models';
+import {subscribeToTodayAttendance} from '@app/services/attendance.service';
+import {getEmployees, getFinanceAccounts} from '@app/services/users.service';
+import type {AppUser, AttendanceRecord} from '@app/types/models';
 import {getEmployeePresenceStatus} from '@app/utils/attendanceReport';
 import {useAuthStore} from '@app/stores/authStore';
 import {
+  computeFinanceHomeCashFlowTotals,
   computeFinanceHomePageTotalBalance,
-  computeFinanceTotals,
   filterFinanceUsersForViewer,
   filterTransactionsForUsers,
 } from '@app/utils/financeTotals';
 import {useFirestoreSubscription} from '@app/hooks/useFirestoreSubscription';
+import {useFinanceAccountTransactions} from '@app/hooks/useFinanceAccountTransactions';
+import {useUsersDirectory} from '@app/hooks/useUsersDirectory';
+
+export interface AdminDashboardLoadOptions {
+  loadFinance?: boolean;
+  loadMetrics?: boolean;
+}
 
 export interface AdminDashboardData {
   users: AppUser[];
@@ -20,28 +26,41 @@ export interface AdminDashboardData {
   globalBalance: number;
   cashIn: number;
   cashOut: number;
-  isLoading: boolean;
+  financeLoading: boolean;
+  metricsLoading: boolean;
 }
 
-export function useAdminDashboardData(enabled: boolean): AdminDashboardData {
+export function useAdminDashboardData(
+  enabled: boolean,
+  options: AdminDashboardLoadOptions = {},
+): AdminDashboardData {
   const currentUser = useAuthStore((s) => s.user);
-  const {data: users, isLoading: usersLoading} = useFirestoreSubscription<AppUser[]>(
-    [],
-    subscribeToUsers,
-    [],
-    {enabled},
-  );
-  const {data: transactions, isLoading: transactionsLoading} = useFirestoreSubscription<Transaction[]>(
-    [],
-    subscribeToAllTransactions,
-    [],
-    {enabled},
-  );
-  const {data: attendanceRecords, isLoading: attendanceLoading} = useFirestoreSubscription<
-    AttendanceRecord[]
-  >([], subscribeToAllAttendance, [], {enabled});
+  const loadFinance = options.loadFinance ?? false;
+  const loadMetrics = options.loadMetrics ?? false;
+  const needsUsers = loadFinance || loadMetrics;
+
+  const {users, isLoading: usersLoading} = useUsersDirectory('all', enabled && needsUsers);
 
   const employees = useMemo(() => getEmployees(users), [users]);
+
+  const financeUsers = useMemo(() => getFinanceAccounts(users), [users]);
+  const visibleFinanceUsers = useMemo(
+    () => filterFinanceUsersForViewer(currentUser, financeUsers),
+    [currentUser, financeUsers],
+  );
+  const financeAccountUserIds = useMemo(
+    () => visibleFinanceUsers.map((user) => user.id),
+    [visibleFinanceUsers],
+  );
+
+  const {transactions, isLoading: transactionsLoading} = useFinanceAccountTransactions(
+    financeAccountUserIds,
+    enabled && loadFinance,
+  );
+
+  const {data: attendanceRecords, isLoading: attendanceLoading} = useFirestoreSubscription<
+    AttendanceRecord[]
+  >([], subscribeToTodayAttendance, [], {enabled: enabled && loadMetrics});
 
   const attendanceByUser = useMemo(() => {
     const map = new Map<string, AttendanceRecord[]>();
@@ -61,16 +80,9 @@ export function useAdminDashboardData(enabled: boolean): AdminDashboardData {
     [attendanceByUser, employees],
   );
 
-  const financeUsers = useMemo(() => getFinanceAccounts(users), [users]);
-
-  const visibleFinanceUsers = useMemo(
-    () => filterFinanceUsersForViewer(currentUser, financeUsers),
-    [currentUser, financeUsers],
-  );
-
   const financeTransactions = useMemo(
     () => filterTransactionsForUsers(transactions, visibleFinanceUsers),
-    [visibleFinanceUsers, transactions],
+    [transactions, visibleFinanceUsers],
   );
 
   const globalBalance = useMemo(
@@ -78,9 +90,13 @@ export function useAdminDashboardData(enabled: boolean): AdminDashboardData {
     [currentUser, financeTransactions, visibleFinanceUsers],
   );
 
-  const {cashIn, cashOut} = useMemo(() => computeFinanceTotals(financeTransactions), [financeTransactions]);
+  const {cashIn, cashOut} = useMemo(
+    () => computeFinanceHomeCashFlowTotals(financeTransactions, visibleFinanceUsers),
+    [financeTransactions, visibleFinanceUsers],
+  );
 
-  const isLoading = enabled && (usersLoading || transactionsLoading || attendanceLoading);
+  const financeLoading = enabled && loadFinance && (usersLoading || transactionsLoading);
+  const metricsLoading = enabled && loadMetrics && (usersLoading || attendanceLoading);
 
   return {
     users,
@@ -89,6 +105,7 @@ export function useAdminDashboardData(enabled: boolean): AdminDashboardData {
     globalBalance,
     cashIn,
     cashOut,
-    isLoading,
+    financeLoading,
+    metricsLoading,
   };
 }

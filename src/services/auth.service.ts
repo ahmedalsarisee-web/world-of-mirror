@@ -2,19 +2,15 @@ import {
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
   onAuthStateChanged,
-  createUserWithEmailAndPassword,
-  getAuth,
   EmailAuthProvider,
   reauthenticateWithCredential,
   updatePassword,
   type User,
 } from 'firebase/auth';
-import {deleteApp, initializeApp} from 'firebase/app';
-import {httpsCallable} from '@firebase/functions';
 import {getDedicatedDataResetPassword, hasDedicatedDataResetPassword} from '@app/config/dataResetAccess';
 import {isMockMode} from '@app/config/appMode';
-import {firebaseConfig, getFirebaseAuth, getFirebaseFunctions} from '@app/config/firebase';
-import {getUserById, syncPrimaryAdminProfile} from '@app/services/users.service';
+import {getFirebaseAuth} from '@app/config/firebase';
+import {getUserById, syncUserProfileEmail} from '@app/services/users.service';
 import type {AppUser} from '@app/types/models';
 
 export type DataResetPasswordErrorCode = 'WRONG_PASSWORD' | 'NOT_CONFIGURED' | 'NOT_SIGNED_IN';
@@ -30,10 +26,14 @@ export class DataResetPasswordError extends Error {
 
 export async function signIn(email: string, password: string): Promise<AppUser> {
   const credential = await signInWithEmailAndPassword(getFirebaseAuth(), email, password);
-  await syncPrimaryAdminProfile(credential.user.uid, credential.user.email ?? email);
+  await syncUserProfileEmail(credential.user.uid, credential.user.email ?? email);
   const profile = await getUserById(credential.user.uid);
   if (!profile) {
     throw new Error('User profile not found in database.');
+  }
+  if (profile.archivedAt) {
+    await firebaseSignOut(getFirebaseAuth());
+    throw new Error('User account is archived.');
   }
   return profile;
 }
@@ -48,24 +48,6 @@ export function subscribeToAuth(callback: (user: User | null) => void) {
 
 export async function loadUserProfile(uid: string): Promise<AppUser | null> {
   return getUserById(uid);
-}
-
-export async function registerAuthUser(email: string, password: string): Promise<string> {
-  const secondaryApp = initializeApp(firebaseConfig, `Secondary-${Date.now()}`);
-  try {
-    const credential = await createUserWithEmailAndPassword(getAuth(secondaryApp), email, password);
-    return credential.user.uid;
-  } finally {
-    await deleteApp(secondaryApp);
-  }
-}
-
-export async function deleteAuthAccount(userId: string): Promise<void> {
-  const deleteAuthUser = httpsCallable<{userId: string}, {success: boolean}>(
-    getFirebaseFunctions(),
-    'deleteAuthUser',
-  );
-  await deleteAuthUser({userId});
 }
 
 export async function verifyDataResetPassword(password: string): Promise<void> {

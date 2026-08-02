@@ -13,7 +13,11 @@ export async function publishAttendanceGpsHeartbeat(userId: string): Promise<voi
     return;
   }
 
-  await updateDoc(doc(getFirebaseDb(), USERS, userId), {attendanceGpsHeartbeatAt: heartbeatAt});
+  try {
+    await updateDoc(doc(getFirebaseDb(), USERS, userId), {attendanceGpsHeartbeatAt: heartbeatAt});
+  } catch {
+    // Ignore permission errors during logout teardown.
+  }
 }
 
 export async function clearAttendanceGpsHeartbeat(userId: string): Promise<void> {
@@ -22,5 +26,9 @@ export async function clearAttendanceGpsHeartbeat(userId: string): Promise<void>
     return;
   }
 
-  await updateDoc(doc(getFirebaseDb(), USERS, userId), {attendanceGpsHeartbeatAt: deleteField()});
+  try {
+    await updateDoc(doc(getFirebaseDb(), USERS, userId), {attendanceGpsHeartbeatAt: deleteField()});
+  } catch {
+    // Ignore permission errors during logout teardown.
+  }
 }

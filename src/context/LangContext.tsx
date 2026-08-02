@@ -4,7 +4,7 @@ import {LangDirection} from '@shared/enums/LangDirection';
 import {StorageKeys} from '@app/constants/StorageKeys';
 import {storage} from '@app/utils/storage';
 import {getDeviceLanguage} from '@shared/utils/deviceLocale';
-import {applyRtlManager, reloadAppForRtlChange} from '@shared/utils/rtlManager';
+import {applyRtlManager, ensureRtlAllowed, reloadAppForRtlChange} from '@shared/utils/rtlManager';
 import type {LangCode, LangPreference} from '@app/types/language';
 
 export interface LangContextValue {
@@ -62,6 +62,8 @@ export const LangProvider: React.FC<React.PropsWithChildren> = ({children}) => {
   }, []);
 
   useEffect(() => {
+    ensureRtlAllowed();
+
     const loadPreference = async () => {
       const storedPreference = await storage.getString(StorageKeys.LANGUAGE);
       const preference = resolveStoredLanguage(storedPreference);

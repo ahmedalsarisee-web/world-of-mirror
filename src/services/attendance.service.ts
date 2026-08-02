@@ -13,10 +13,12 @@ import {
 } from 'firebase/firestore';
 import dayjs from 'dayjs';
 import {isMockMode} from '@app/config/appMode';
-import {getFirebaseDb} from '@app/config/firebase';
+import {getFirebaseDb, isFirebaseConfigured} from '@app/config/firebase';
+import {deleteAllDocumentsInCollection} from '@app/utils/firestoreBatchDelete';
 import {subscribeMockDb, useMockDb} from '@app/mock/mockDb';
 import type {AttendanceEventType, AttendanceRecord} from '@app/types/models';
 import {combineAttendanceDateTime} from '@app/utils/attendanceReport';
+import {recordAttendanceNotification} from '@app/utils/recordAdminOperationNotifications';
 
 const ATTENDANCE = 'attendance';
 
@@ -126,6 +128,41 @@ export function subscribeToAllAttendance(
   );
 }
 
+/** Lighter listener for presence dashboards and live admin notifications. */
+export function subscribeToTodayAttendance(
+  callback: (records: AttendanceRecord[]) => void,
+): Unsubscribe {
+  const startOfDayIso = dayjs().startOf('day').toISOString();
+
+  if (isMockMode) {
+    const emit = () => {
+      const list = sortRecords(
+        useMockDb.getState().attendance.filter((record) => record.createdAt >= startOfDayIso),
+      );
+      callback(list);
+    };
+    emit();
+    return subscribeMockDb(emit);
+  }
+
+  const q = query(
+    collection(getFirebaseDb(), ATTENDANCE),
+    where('createdAt', '>=', startOfDayIso),
+  );
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      const list = sortRecords(snap.docs.map((doc) => mapAttendanceRecord(doc.id, doc.data())));
+      callback(list);
+    },
+    (error) => {
+      console.error('[subscribeToTodayAttendance]', error);
+      callback([]);
+    },
+  );
+}
+
 export async function createAttendanceRecord(
   userId: string,
   type: AttendanceEventType,
@@ -139,7 +176,14 @@ export async function createAttendanceRecord(
 
   const createdAt = options?.createdAt ?? (await resolveAttendanceCreatedAt(userId));
 
-  await addDoc(collection(getFirebaseDb(), ATTENDANCE), {
+  const docRef = await addDoc(collection(getFirebaseDb(), ATTENDANCE), {
+    userId,
+    type,
+    note,
+    createdAt,
+  });
+  recordAttendanceNotification({
+    id: docRef.id,
     userId,
     type,
     note,
@@ -203,6 +247,12 @@ export async function updateAttendanceRecord(
 export async function deleteAttendanceRecord(recordId: string): Promise<void> {
   if (isMockMode) {
     useMockDb.getState().deleteAttendanceRecord(recordId);
+    if (!isFirebaseConfigured) {
+      return;
+    }
+  }
+
+  if (!isFirebaseConfigured) {
     return;
   }
 
@@ -232,26 +282,34 @@ export async function deleteAllAttendanceRecordsForUser(userId: string): Promise
 }
 
 export async function deleteAllAttendanceRecords(): Promise<number> {
+  let count = 0;
+
   if (isMockMode) {
-    const count = useMockDb.getState().attendance.length;
+    count = useMockDb.getState().attendance.length;
     useMockDb.setState({attendance: []});
+    if (!isFirebaseConfigured) {
+      return count;
+    }
+  }
+
+  if (!isFirebaseConfigured) {
     return count;
   }
 
-  const snap = await getDocs(collection(getFirebaseDb(), ATTENDANCE));
-  if (snap.empty) {
-    return 0;
-  }
-
-  await Promise.all(snap.docs.map((docSnap) => deleteDoc(docSnap.ref)));
-  return snap.size;
+  return deleteAllDocumentsInCollection(ATTENDANCE);
 }
 
-function getDayWorkRecordIds(dateKey: string, existingRecords: AttendanceRecord[]): string[] {
+const DAY_EDITABLE_ATTENDANCE_TYPES = new Set<AttendanceEventType>([
+  'check_in',
+  'check_out',
+  'absent',
+]);
+
+function getDayEditableRecordIds(dateKey: string, existingRecords: AttendanceRecord[]): string[] {
   return existingRecords
     .filter(
       (record) =>
-        (record.type === 'check_in' || record.type === 'check_out') &&
+        DAY_EDITABLE_ATTENDANCE_TYPES.has(record.type) &&
         dayjs(record.createdAt).format('YYYY-MM-DD') === dateKey,
     )
     .map((record) => record.id);
@@ -261,9 +319,24 @@ export async function clearDayAttendanceRecords(
   dateKey: string,
   existingRecords: AttendanceRecord[],
 ): Promise<void> {
-  for (const recordId of getDayWorkRecordIds(dateKey, existingRecords)) {
+  for (const recordId of getDayEditableRecordIds(dateKey, existingRecords)) {
     await deleteAttendanceRecord(recordId);
   }
+}
+
+export async function replaceAbsentDayRecord(
+  userId: string,
+  dateKey: string,
+  note: string,
+  existingRecords: AttendanceRecord[],
+): Promise<void> {
+  await clearDayAttendanceRecords(dateKey, existingRecords);
+  const trimmedNote = note.trim();
+  if (!trimmedNote) {
+    throw new Error('attendanceAbsentNoteRequired');
+  }
+  const createdAt = combineAttendanceDateTime(dateKey, '12:00');
+  await createAttendanceRecord(userId, 'absent', trimmedNote, {createdAt});
 }
 
 export async function replaceDayAttendanceRecords(

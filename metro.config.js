@@ -7,6 +7,11 @@ const config = getDefaultConfig(projectRoot);
 const localFunctionsDir = path.join(projectRoot, 'firebase', 'functions');
 const npmFunctionsEntry = require.resolve('firebase/functions');
 
+const {assetExts} = config.resolver;
+if (!assetExts.includes('webp')) {
+  config.resolver.assetExts = [...assetExts, 'webp'];
+}
+
 const defaultResolveRequest = config.resolver.resolveRequest;
 
 config.resolver.resolveRequest = (context, moduleName, platform) => {

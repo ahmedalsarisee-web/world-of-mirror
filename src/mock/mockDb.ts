@@ -9,6 +9,9 @@ import type {
   TransactionType,
   UserRole,
 } from '@app/types/models';
+import type {OrdersHomeCardConfig} from '@app/types/ordersHomeCard';
+import type {MirrorCatalogItem} from '@app/types/mirrorCatalog';
+import type {MirrorWarehouseStockCounts} from '@app/types/mirrorWarehouse';
 import {createSeedUsers, MOCK_EMPLOYEE_IDS, MOCK_ADMIN_ID} from '@app/mock/mockUsers';
 import {getDefaultEmployeePermissions} from '@app/utils/employeePermissions';
 import {affectsUserStoredBalance, normalizeTransactionAmount} from '@app/utils/financeTotals';
@@ -102,7 +105,14 @@ interface MockDbState {
   transactions: Transaction[];
   attendance: AttendanceRecord[];
   attendanceWorkplace: AttendanceWorkplace;
+  ordersHomeCards: OrdersHomeCardConfig[];
+  mirrorWarehouseStock: MirrorWarehouseStockCounts;
+  mirrorCatalogItems: MirrorCatalogItem[];
   setAttendanceWorkplace: (workplace: AttendanceWorkplace) => void;
+  setOrdersHomeCards: (cards: OrdersHomeCardConfig[]) => void;
+  setMirrorWarehouseCount: (catalogImageId: string, count: number) => void;
+  addMirrorCatalogItem: (item: MirrorCatalogItem) => void;
+  removeMirrorCatalogItem: (imageId: string) => void;
   reset: () => void;
   setUser: (userId: string, patch: Partial<AppUser>) => void;
   addUser: (data: {
@@ -113,6 +123,7 @@ interface MockDbState {
     isPrimaryAdmin?: boolean;
   }) => string;
   deleteUser: (userId: string) => void;
+  archiveEmployeeUser: (userId: string) => void;
   addTransaction: (
     userId: string,
     type: TransactionType,
@@ -160,8 +171,37 @@ export const useMockDb = create<MockDbState>((set, get) => ({
   transactions: seedTransactions(),
   attendance: seedAttendance(),
   attendanceWorkplace: DEFAULT_ATTENDANCE_WORKPLACE,
+  ordersHomeCards: [],
+  mirrorWarehouseStock: {},
+  mirrorCatalogItems: [],
 
   setAttendanceWorkplace: (workplace) => set({attendanceWorkplace: workplace}),
+  setOrdersHomeCards: (cards) => set({ordersHomeCards: cards}),
+  setMirrorWarehouseCount: (catalogImageId, count) =>
+    set((state) => {
+      const next = {...state.mirrorWarehouseStock};
+      if (count > 0) {
+        next[catalogImageId] = count;
+      } else {
+        delete next[catalogImageId];
+      }
+      return {mirrorWarehouseStock: next};
+    }),
+  addMirrorCatalogItem: (item) =>
+    set((state) => ({
+      mirrorCatalogItems: [...state.mirrorCatalogItems.filter((entry) => entry.id !== item.id), item],
+    })),
+  removeMirrorCatalogItem: (imageId) =>
+    set((state) => {
+      const now = new Date().toISOString();
+      return {
+        mirrorCatalogItems: state.mirrorCatalogItems.map((entry) =>
+          entry.id === imageId
+            ? {...entry, removedFromWarehouseAt: now, updatedAt: now}
+            : entry,
+        ),
+      };
+    }),
 
   reset: () =>
     set({
@@ -169,6 +209,9 @@ export const useMockDb = create<MockDbState>((set, get) => ({
       transactions: seedTransactions(),
       attendance: seedAttendance(),
       attendanceWorkplace: DEFAULT_ATTENDANCE_WORKPLACE,
+      ordersHomeCards: [],
+      mirrorWarehouseStock: {},
+      mirrorCatalogItems: [],
     }),
 
   setUser: (userId, patch) =>
@@ -196,6 +239,30 @@ export const useMockDb = create<MockDbState>((set, get) => ({
     set((state) => ({
       users: state.users.filter((u) => u.id !== userId),
       transactions: state.transactions.filter((tx) => tx.userId !== userId),
+      attendance: state.attendance.filter((record) => record.userId !== userId),
+    })),
+
+  archiveEmployeeUser: (userId) =>
+    set((state) => ({
+      users: state.users.map((user) =>
+        user.id === userId
+          ? {
+              ...user,
+              archivedAt: new Date().toISOString(),
+              email: undefined,
+              permissions: undefined,
+              financeLedgers: undefined,
+              financeCardLabels: undefined,
+              delegatedFinanceLedgerAccess: undefined,
+              lastLocation: undefined,
+              expoPushTokens: undefined,
+              attendanceResetSchedule: undefined,
+              attendanceResetScheduleUpdatedAt: undefined,
+              attendanceLastResetBoundary: undefined,
+              attendanceGpsHeartbeatAt: undefined,
+            }
+          : user,
+      ),
       attendance: state.attendance.filter((record) => record.userId !== userId),
     })),
 
@@ -279,6 +346,9 @@ export const useMockDb = create<MockDbState>((set, get) => ({
     set((state) => ({
       transactions: [],
       attendance: [],
+      ordersHomeCards: [],
+      mirrorWarehouseStock: {},
+      mirrorCatalogItems: [],
       users: state.users.map((user) => ({
         ...user,
         balance: 0,

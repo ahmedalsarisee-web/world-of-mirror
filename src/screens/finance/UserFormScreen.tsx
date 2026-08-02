@@ -59,7 +59,6 @@ const UserFormScreen: React.FC = () => {
   return (
     <>
       <FormScreen fields={['name', 'email', 'password']}>
-        <Text style={[styles.title, textStyle]}>{t('addUser')}</Text>
 
         <Controller
           control={control}

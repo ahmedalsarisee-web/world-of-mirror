@@ -10,10 +10,11 @@ const TRANSACTION_TYPE_LABELS: Record<string, string> = {
 
 export function formatCurrency(amount: number): string {
   const value = Number.isFinite(amount) ? amount : 0;
-  return `${value.toLocaleString('ar-SA')} ر.س`;
+  return `${value.toLocaleString('ar-SA')} د.أ`;
 }
 
 export function buildFinancePushMessage(
+  actorName: string,
   accountName: string,
   type: string,
   amount: number,
@@ -23,11 +24,11 @@ export function buildFinancePushMessage(
   const amountLabel = formatCurrency(amount);
   const trimmedNote = typeof note === 'string' ? note.trim() : '';
   const body = trimmedNote
-    ? `${accountName} · ${typeLabel} · ${amountLabel} · ${trimmedNote}`
-    : `${accountName} · ${typeLabel} · ${amountLabel}`;
+    ? `قام ${actorName} بتسجيل ${typeLabel} على حساب ${accountName} بمبلغ ${amountLabel} — ${trimmedNote}`
+    : `قام ${actorName} بتسجيل ${typeLabel} على حساب ${accountName} بمبلغ ${amountLabel}`;
 
   return {
-    title: 'عملية مالية جديدة',
+    title: 'حركة مالية جديدة',
     body,
   };
 }
@@ -37,14 +38,18 @@ export function buildAttendancePushMessage(
   type: 'check_in' | 'check_out',
   note?: string,
 ): {title: string; body: string} {
-  const actionLabel = type === 'check_in' ? 'حضور' : 'انصراف';
   const trimmedNote = typeof note === 'string' ? note.trim() : '';
+  const isCheckIn = type === 'check_in';
   const body = trimmedNote
-    ? `${employeeName} · ${actionLabel} · ${trimmedNote}`
-    : `${employeeName} · ${actionLabel}`;
+    ? isCheckIn
+      ? `سجّل ${employeeName} حضوراً — ${trimmedNote}`
+      : `سجّل ${employeeName} انصرافاً — ${trimmedNote}`
+    : isCheckIn
+      ? `سجّل ${employeeName} حضوراً`
+      : `سجّل ${employeeName} انصرافاً`;
 
   return {
-    title: type === 'check_in' ? 'تسجيل حضور' : 'تسجيل انصراف',
+    title: isCheckIn ? 'تسجيل حضور' : 'تسجيل انصراف',
     body,
   };
 }
@@ -52,9 +57,49 @@ export function buildAttendancePushMessage(
 export function buildConfirmedOrderPushMessage(
   customerName: string,
   total: number,
+  invoiceNumber?: number,
 ): {title: string; body: string} {
+  const invoiceLabel =
+    invoiceNumber !== undefined && Number.isFinite(invoiceNumber) && invoiceNumber > 0
+      ? `#${Math.floor(invoiceNumber)}`
+      : 'طلب جديد';
+
   return {
-    title: 'طلب مؤكد جديد',
-    body: `${customerName} · ${formatCurrency(total)}`,
+    title: 'طلب جديد قيد التجهيز',
+    body: `${invoiceLabel} — العميل: ${customerName} — الإجمالي: ${formatCurrency(total)}`,
+  };
+}
+
+export function buildOrderMovePushMessage(
+  employeeName: string,
+  fromLabel: string,
+  toLabel: string,
+  invoiceNumber?: number,
+): {title: string; body: string} {
+  const invoiceLabel =
+    invoiceNumber !== undefined && Number.isFinite(invoiceNumber) && invoiceNumber > 0
+      ? `#${Math.floor(invoiceNumber)}`
+      : 'طلب';
+
+  return {
+    title: 'نقل طلب',
+    body: `${invoiceLabel} — نقل ${employeeName} من ${fromLabel} إلى ${toLabel}`,
+  };
+}
+
+export function buildOrderUpdatedPushMessage(
+  actorName: string,
+  customerName: string,
+  total: number,
+  invoiceNumber?: number,
+): {title: string; body: string} {
+  const invoiceLabel =
+    invoiceNumber !== undefined && Number.isFinite(invoiceNumber) && invoiceNumber > 0
+      ? `#${Math.floor(invoiceNumber)}`
+      : 'طلب';
+
+  return {
+    title: 'تعديل طلب',
+    body: `قام ${actorName} بتعديل ${invoiceLabel} — العميل: ${customerName} — الإجمالي: ${formatCurrency(total)}`,
   };
 }

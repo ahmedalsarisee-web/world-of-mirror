@@ -1,6 +1,6 @@
 import type {AppUser, Transaction, TransactionType} from '@app/types/models';
 import {canViewAllFinanceCards} from '@app/utils/adminPermissions';
-import {sortFinanceLedgersByCreatedAt} from '@app/utils/financeLedgers';
+import {shouldCountLedgerInFinanceTotals, sortFinanceLedgersByCreatedAt, isMemoFinanceLedger} from '@app/utils/financeLedgers';
 import {
   filterVisibleFinanceLedgers,
   shouldListFinanceLedgerOnFinanceHome,
@@ -8,14 +8,17 @@ import {
 
 /** Finance accounts/cards visible to the current viewer on Finance home. */
 export function filterFinanceUsersForViewer(
-  viewer: Pick<AppUser, 'id' | 'role' | 'isPrimaryAdmin' | 'email' | 'adminPermissions'> | null | undefined,
+  viewer: Pick<AppUser, 'id' | 'role' | 'isPrimaryAdmin' | 'email' | 'adminPermissions' | 'permissions'> | null | undefined,
   financeUsers: AppUser[],
 ): AppUser[] {
   if (!viewer?.id) {
     return financeUsers;
   }
-  if (viewer.role !== 'admin' || canViewAllFinanceCards(viewer as AppUser)) {
-    return financeUsers;
+  if (viewer.role === 'employee') {
+    return [];
+  }
+  if (canViewAllFinanceCards(viewer as AppUser)) {
+    return financeUsers.filter((user) => user.role === 'admin');
   }
   return financeUsers.filter((user) => user.id === viewer.id);
 }
@@ -85,6 +88,43 @@ export function computeFinanceTotals(transactions: Transaction[]): FinanceTotals
     .reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
 
   return {cashIn, cashOut};
+}
+
+function buildMemoLedgerKeys(users: Array<Pick<AppUser, 'id' | 'financeLedgers'>>): Set<string> {
+  const keys = new Set<string>();
+  for (const user of users) {
+    for (const ledger of user.financeLedgers ?? []) {
+      if (isMemoFinanceLedger(ledger)) {
+        keys.add(`${user.id}:${ledger.id}`);
+      }
+    }
+  }
+  return keys;
+}
+
+/** Excludes note-card (memo-only) ledger movements from finance home cash-flow totals. */
+export function filterMemoLedgerTransactions(
+  transactions: Transaction[],
+  users: Array<Pick<AppUser, 'id' | 'financeLedgers'>>,
+): Transaction[] {
+  const memoLedgerKeys = buildMemoLedgerKeys(users);
+  if (memoLedgerKeys.size === 0) {
+    return transactions;
+  }
+
+  return transactions.filter((transaction) => {
+    if (!transaction.ledgerId) {
+      return true;
+    }
+    return !memoLedgerKeys.has(`${transaction.userId}:${transaction.ledgerId}`);
+  });
+}
+
+export function computeFinanceHomeCashFlowTotals(
+  transactions: Transaction[],
+  users: Array<Pick<AppUser, 'id' | 'financeLedgers'>>,
+): FinanceTotals {
+  return computeFinanceTotals(filterMemoLedgerTransactions(transactions, users));
 }
 
 export function computeAdvanceTotals(transactions: Transaction[]): AdvanceTotals {
@@ -228,10 +268,12 @@ export function computeAllCustomLedgersTotalBalance(
   return users.reduce((sum, user) => {
     const userTransactions = transactions.filter((transaction) => transaction.userId === user.id);
     const ledgers = user.financeLedgers ?? [];
-    const ledgersTotal = ledgers.reduce(
-      (ledgerSum, ledger) => ledgerSum + computeCustomLedgerBalance(userTransactions, ledger.id),
-      0,
-    );
+    const ledgersTotal = ledgers.reduce((ledgerSum, ledger) => {
+      if (!shouldCountLedgerInFinanceTotals(ledger)) {
+        return ledgerSum;
+      }
+      return ledgerSum + computeCustomLedgerBalance(userTransactions, ledger.id);
+    }, 0);
     return sum + ledgersTotal;
   }, 0);
 }
@@ -262,24 +304,36 @@ export function computeFinanceHomePageTotalBalance(
   const cashAccountUsers =
     currentUser.role === 'admin'
       ? visibleFinanceUsers
-      : [visibleFinanceUsers.find((user) => user.id === currentUser.id) ?? (currentUser as AppUser)];
+      : currentUser.role === 'employee'
+        ? []
+        : [visibleFinanceUsers.find((user) => user.id === currentUser.id) ?? (currentUser as AppUser)];
 
   let total = computeFinanceAccountsTotalBalance(cashAccountUsers, transactions);
 
-  const ownAccount =
-    visibleFinanceUsers.find((user) => user.id === currentUser.id) ?? (currentUser as AppUser);
-  const ownTransactions = transactions.filter((transaction) => transaction.userId === ownAccount.id);
-  const visibleOwnLedgers = filterVisibleFinanceLedgers(
-    currentUser,
-    ownAccount,
-    ownAccount.financeLedgers ?? [],
-  );
+  if (currentUser.role !== 'employee') {
+    const ownAccount =
+      visibleFinanceUsers.find((user) => user.id === currentUser.id) ?? (currentUser as AppUser);
+    const ownTransactions = transactions.filter((transaction) => transaction.userId === ownAccount.id);
+    const visibleOwnLedgers = filterVisibleFinanceLedgers(
+      currentUser,
+      ownAccount,
+      ownAccount.financeLedgers ?? [],
+    );
 
-  for (const ledger of visibleOwnLedgers) {
-    total += computeCustomLedgerBalance(ownTransactions, ledger.id);
+    for (const ledger of visibleOwnLedgers) {
+      if (!shouldCountLedgerInFinanceTotals(ledger)) {
+        continue;
+      }
+      total += computeCustomLedgerBalance(ownTransactions, ledger.id);
+    }
   }
 
-  for (const owner of visibleFinanceUsers) {
+  const sharedLedgerOwners =
+    currentUser.role === 'employee'
+      ? financeUsers.filter((user) => user.role === 'admin')
+      : visibleFinanceUsers;
+
+  for (const owner of sharedLedgerOwners) {
     if (owner.id === currentUser.id) {
       continue;
     }
@@ -288,6 +342,9 @@ export function computeFinanceHomePageTotalBalance(
     const ledgers = sortFinanceLedgersByCreatedAt(owner.financeLedgers ?? []);
 
     for (const ledger of ledgers) {
+      if (!shouldCountLedgerInFinanceTotals(ledger)) {
+        continue;
+      }
       if (!shouldListFinanceLedgerOnFinanceHome(currentUser, owner, ledger)) {
         continue;
       }

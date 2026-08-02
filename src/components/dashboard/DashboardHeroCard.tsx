@@ -1,17 +1,16 @@
 import React, {useMemo} from 'react';
-import {Image, StyleSheet, Text, View} from 'react-native';
+import {StyleSheet, Text, View} from 'react-native';
 import GradientCard from '@app/components/common/GradientCard';
 import {useDirection} from '@app/hooks/useDirection';
 import {useTheme} from '@app/context/ThemeContext';
 import {getListCardStyle} from '@shared/theme/themeHelpers';
-
-const BRAND_MARK = require('../../../assets/icon.png');
 
 interface Props {
   title: string;
   subtitle: string;
   userName?: string;
   gradientColors?: string[];
+  variant?: 'default' | 'compact';
 }
 
 function getInitials(name: string): string {
@@ -30,9 +29,11 @@ const DashboardHeroCard: React.FC<Props> = ({
   subtitle,
   userName = '',
   gradientColors,
+  variant = 'default',
 }) => {
   const {theme} = useTheme();
-  const {centeredTextStyle} = useDirection();
+  const {centeredTextStyle, textStyle, row, layoutStyle} = useDirection();
+  const isCompact = variant === 'compact';
   const listCard = useMemo(() => getListCardStyle(theme), [theme]);
   const initials = useMemo(() => getInitials(userName || title), [title, userName]);
 
@@ -68,35 +69,20 @@ const DashboardHeroCard: React.FC<Props> = ({
           width: 72,
           height: 72,
           borderRadius: 36,
-          overflow: 'hidden',
-          borderWidth: 2,
-          borderColor: 'rgba(255,255,255,0.45)',
-          backgroundColor: '#FFFFFF',
-          marginBottom: theme.spacing.md,
-        },
-        logoImage: {
-          width: '100%',
-          height: '100%',
-        },
-        avatar: {
-          width: 48,
-          height: 48,
-          borderRadius: 24,
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: 'rgba(255,255,255,0.22)',
           borderWidth: 2,
-          borderColor: 'rgba(255,255,255,0.35)',
-          marginBottom: theme.spacing.sm,
+          borderColor: 'rgba(255,255,255,0.45)',
+          backgroundColor: 'rgba(255,255,255,0.22)',
+          marginBottom: theme.spacing.md,
         },
-        avatarText: {
-          fontSize: theme.typographyScale.size.md,
+        logoInitials: {
+          fontSize: theme.typographyScale.size.lg,
           fontWeight: '800',
           color: theme.colors.onPrimary,
           textAlign: 'center',
           width: '100%',
           includeFontPadding: false,
-          lineHeight: theme.typographyScale.size.md + 4,
         },
         title: {
           fontSize: theme.typographyScale.size.lg,
@@ -112,9 +98,78 @@ const DashboardHeroCard: React.FC<Props> = ({
           textAlign: 'center',
           paddingHorizontal: theme.spacing.sm,
         },
+        compactCard: {
+          marginBottom: theme.spacing.sm,
+          paddingVertical: theme.spacing.md,
+          paddingHorizontal: theme.spacing.md,
+          borderRadius: theme.radius.lg,
+        },
+        compactRow: {
+          flexDirection: row,
+          alignItems: 'center',
+          gap: theme.spacing.md,
+        },
+        compactAvatar: {
+          width: 44,
+          height: 44,
+          borderRadius: 22,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: 'rgba(255,255,255,0.22)',
+          borderWidth: 2,
+          borderColor: 'rgba(255,255,255,0.35)',
+        },
+        compactAvatarText: {
+          fontSize: theme.typographyScale.size.sm,
+          fontWeight: '800',
+          color: theme.colors.onPrimary,
+          textAlign: 'center',
+          width: '100%',
+          includeFontPadding: false,
+        },
+        compactTextWrap: {
+          flex: 1,
+          minWidth: 0,
+          gap: 2,
+        },
+        compactTitle: {
+          fontSize: theme.typographyScale.size.md,
+          fontWeight: '800',
+          color: theme.colors.onPrimary,
+        },
+        compactSubtitle: {
+          fontSize: theme.typographyScale.size.xs,
+          color: 'rgba(255,255,255,0.88)',
+          lineHeight: 16,
+        },
       }),
-    [theme],
+    [row, theme],
   );
+
+  if (isCompact) {
+    return (
+      <GradientCard
+        colors={gradientColors ?? theme.gradient.header}
+        style={{...listCard, ...styles.compactCard}}
+      >
+        <View style={[styles.compactRow, layoutStyle]}>
+          <View style={styles.compactAvatar}>
+            <Text style={styles.compactAvatarText} allowFontScaling={false}>
+              {initials}
+            </Text>
+          </View>
+          <View style={styles.compactTextWrap}>
+            <Text style={[styles.compactTitle, textStyle]} numberOfLines={1}>
+              {title}
+            </Text>
+            <Text style={[styles.compactSubtitle, textStyle]} numberOfLines={2}>
+              {subtitle}
+            </Text>
+          </View>
+        </View>
+      </GradientCard>
+    );
+  }
 
   return (
     <GradientCard colors={gradientColors ?? theme.gradient.header} style={{...listCard, ...styles.card}}>
@@ -122,11 +177,7 @@ const DashboardHeroCard: React.FC<Props> = ({
       <View style={styles.decorSmall} />
 
       <View style={styles.logoRing}>
-        <Image source={BRAND_MARK} style={styles.logoImage} resizeMode="cover" accessibilityIgnoresInvertColors />
-      </View>
-
-      <View style={styles.avatar}>
-        <Text style={styles.avatarText} allowFontScaling={false}>
+        <Text style={styles.logoInitials} allowFontScaling={false}>
           {initials}
         </Text>
       </View>

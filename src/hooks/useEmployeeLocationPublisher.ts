@@ -81,27 +81,31 @@ export function useEmployeeLocationPublisher(userId: string | undefined, enabled
         return;
       }
 
-      if (isMockMode) {
-        await publishMockLocation(userId);
-        return;
-      }
+      try {
+        if (isMockMode) {
+          await publishMockLocation(userId);
+          return;
+        }
 
-      const servicesEnabled = await Location.hasServicesEnabledAsync();
-      if (!servicesEnabled) {
-        return;
-      }
+        const servicesEnabled = await Location.hasServicesEnabledAsync();
+        if (!servicesEnabled) {
+          return;
+        }
 
-      const permission = await Location.getForegroundPermissionsAsync();
-      if (permission.status !== 'granted') {
-        return;
-      }
+        const permission = await Location.getForegroundPermissionsAsync();
+        if (permission.status !== 'granted') {
+          return;
+        }
 
-      const position = await readCurrentPositionSafe();
-      if (!position || cancelled) {
-        return;
-      }
+        const position = await readCurrentPositionSafe();
+        if (!position || cancelled) {
+          return;
+        }
 
-      await publishPosition(position, force);
+        await publishPosition(position, force);
+      } catch {
+        // Ignore teardown races during logout.
+      }
     };
 
     const startPolling = () => {

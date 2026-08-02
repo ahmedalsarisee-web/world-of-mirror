@@ -5,7 +5,7 @@ import enTranslation from './en/translation.json';
 import {StorageKeys} from '@app/constants/StorageKeys';
 import {storage} from '@app/utils/storage';
 import {getDeviceLanguage} from '@shared/utils/deviceLocale';
-import {applyRtlManager, reloadAppForRtlChange} from '@shared/utils/rtlManager';
+import {applyRtlManager, ensureRtlAllowed, reloadAppForRtlChange} from '@shared/utils/rtlManager';
 import type {LangCode} from '@app/types/language';
 
 const resources = {
@@ -31,6 +31,7 @@ async function runI18nInit(): Promise<void> {
   const storedPreference = await storage.getString(StorageKeys.LANGUAGE);
   const language = resolveStoredLanguage(storedPreference);
 
+  ensureRtlAllowed();
   const rtlChanged = applyRtlManager(language === 'ar');
 
   await i18n.use(initReactI18next).init({
